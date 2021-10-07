@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "accountsdb-plugin-interface",
+    "accountsdb-plugin-manager",
+    "accountsdb-plugin-postgres",
     "accounts-cluster-bench",
     "bench-streamer",
     "bench-tps",
@@ -8,6 +11,7 @@ members = [
     "banks-client",
     "banks-interface",
     "banks-server",
+    "bucket_map",
     "clap-utils",
     "cli-config",
     "cli-output",
@@ -45,11 +49,9 @@ members = [
     "programs/bpf_loader",
     "programs/compute-budget",
     "programs/config",
-    "programs/ed25519",
     "programs/failure",
     "programs/noop",
     "programs/ownable",
-    "programs/secp256k1",
     "programs/stake",
     "programs/vote",
     "rbpf-cli",

@@ -752,6 +752,7 @@ fn load_bank_forks(
         None,
         None,
         accounts_package_sender,
+        None,
     )
 }
 
@@ -880,11 +881,27 @@ fn main() {
         .validator(is_bin)
         .takes_value(true)
         .help("Number of bins to divide the accounts index into");
+    let accounts_index_limit = Arg::with_name("accounts_index_memory_limit_mb")
+        .long("accounts-index-memory-limit-mb")
+        .value_name("MEGABYTES")
+        .validator(is_parsable::<usize>)
+        .takes_value(true)
+        .help("How much memory the accounts index can consume. If this is exceeded, some account index entries will be stored on disk. If missing, the entire index is stored in memory.");
     let account_paths_arg = Arg::with_name("account_paths")
         .long("accounts")
         .value_name("PATHS")
         .takes_value(true)
         .help("Comma separated persistent accounts location");
+    let accounts_index_path_arg = Arg::with_name("accounts_index_path")
+        .long("accounts-index-path")
+        .value_name("PATH")
+        .takes_value(true)
+        .multiple(true)
+        .help(
+            "Persistent accounts-index location. \
+             May be specified multiple times. \
+             [default: [ledger]/accounts_index]",
+        );
     let accounts_db_test_hash_calculation_arg = Arg::with_name("accounts_db_test_hash_calculation")
         .long("accounts-db-test-hash-calculation")
         .help("Enable hash calculation test");
@@ -1189,9 +1206,11 @@ fn main() {
             .about("Verify the ledger")
             .arg(&no_snapshot_arg)
             .arg(&account_paths_arg)
+            .arg(&accounts_index_path_arg)
             .arg(&halt_at_slot_arg)
             .arg(&limit_load_slot_count_from_snapshot_arg)
             .arg(&accounts_index_bins)
+            .arg(&accounts_index_limit)
             .arg(&verify_index_arg)
             .arg(&hard_forks_arg)
             .arg(&no_accounts_db_caching_arg)
@@ -1908,12 +1927,33 @@ fn main() {
             }
         }
         ("verify", Some(arg_matches)) => {
-            let accounts_index_config = value_t!(arg_matches, "accounts_index_bins", usize)
-                .ok()
-                .map(|bins| AccountsIndexConfig { bins: Some(bins) });
+            let mut accounts_index_config = AccountsIndexConfig::default();
+            if let Some(bins) = value_t!(matches, "accounts_index_bins", usize).ok() {
+                accounts_index_config.bins = Some(bins);
+            }
+
+            if let Some(limit) = value_t!(matches, "accounts_index_memory_limit_mb", usize).ok() {
+                accounts_index_config.index_limit_mb = Some(limit);
+            }
+
+            {
+                let mut accounts_index_paths: Vec<PathBuf> =
+                    if arg_matches.is_present("accounts_index_path") {
+                        values_t_or_exit!(arg_matches, "accounts_index_path", String)
+                            .into_iter()
+                            .map(PathBuf::from)
+                            .collect()
+                    } else {
+                        vec![]
+                    };
+                if accounts_index_paths.is_empty() {
+                    accounts_index_paths = vec![ledger_path.join("accounts_index")];
+                }
+                accounts_index_config.drives = Some(accounts_index_paths);
+            }
 
             let accounts_db_config = Some(AccountsDbConfig {
-                index: accounts_index_config,
+                index: Some(accounts_index_config),
                 accounts_hash_cache_path: Some(ledger_path.clone()),
             });
 

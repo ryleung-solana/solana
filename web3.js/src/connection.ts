@@ -815,7 +815,7 @@ function createRpcClient(
         callback(new Error(`${res.status} ${res.statusText}: ${text}`));
       }
     } catch (err) {
-      callback(err);
+      if (err instanceof Error) callback(err);
     } finally {
       agentManager && agentManager.requestEnd();
     }
@@ -1979,6 +1979,8 @@ export type ConnectionConfig = {
   fetchMiddleware?: FetchMiddleware;
   /** Optional Disable retring calls when server responds with HTTP 429 (Too Many Requests) */
   disableRetryOnRateLimit?: boolean;
+  /** time to allow for the server to initially process a transaction (in milliseconds) */
+  confirmTransactionInitialTimeout?: number;
 };
 
 /**
@@ -1986,6 +1988,7 @@ export type ConnectionConfig = {
  */
 export class Connection {
   /** @internal */ _commitment?: Commitment;
+  /** @internal */ _confirmTransactionInitialTimeout?: number;
   /** @internal */ _rpcEndpoint: string;
   /** @internal */ _rpcWsEndpoint: string;
   /** @internal */ _rpcClient: RpcClient;
@@ -2070,6 +2073,8 @@ export class Connection {
       this._commitment = commitmentOrConfig;
     } else if (commitmentOrConfig) {
       this._commitment = commitmentOrConfig.commitment;
+      this._confirmTransactionInitialTimeout =
+        commitmentOrConfig.confirmTransactionInitialTimeout;
       wsEndpoint = commitmentOrConfig.wsEndpoint;
       httpHeaders = commitmentOrConfig.httpHeaders;
       fetchMiddleware = commitmentOrConfig.fetchMiddleware;
@@ -2629,14 +2634,14 @@ export class Connection {
       }
     });
 
-    let timeoutMs = 60 * 1000;
+    let timeoutMs = this._confirmTransactionInitialTimeout || 60 * 1000;
     switch (subscriptionCommitment) {
       case 'processed':
       case 'recent':
       case 'single':
       case 'confirmed':
       case 'singleGossip': {
-        timeoutMs = 30 * 1000;
+        timeoutMs = this._confirmTransactionInitialTimeout || 30 * 1000;
         break;
       }
       // exhaust enums to ensure full coverage
@@ -3103,6 +3108,26 @@ export class Connection {
   }
 
   /**
+   * Fetch confirmed blocks between two slots
+   */
+  async getBlocks(
+    startSlot: number,
+    endSlot?: number,
+    commitment?: Finality,
+  ): Promise<Array<number>> {
+    const args = this._buildArgsAtLeastConfirmed(
+      endSlot !== undefined ? [startSlot, endSlot] : [startSlot],
+      commitment,
+    );
+    const unsafeRes = await this._rpcRequest('getConfirmedBlocks', args);
+    const res = create(unsafeRes, jsonRpcResult(array(number())));
+    if ('error' in res) {
+      throw new Error('failed to get blocks: ' + res.error.message);
+    }
+    return res.result;
+  }
+
+  /**
    * Fetch a list of Signatures from the cluster for a confirmed block, excluding rewards
    */
   async getConfirmedBlockSignatures(
@@ -3235,7 +3260,7 @@ export class Connection {
             block.signatures[block.signatures.length - 1].toString();
         }
       } catch (err) {
-        if (err.message.includes('skipped')) {
+        if (err instanceof Error && err.message.includes('skipped')) {
           continue;
         } else {
           throw err;
@@ -3257,7 +3282,7 @@ export class Connection {
             block.signatures[block.signatures.length - 1].toString();
         }
       } catch (err) {
-        if (err.message.includes('skipped')) {
+        if (err instanceof Error && err.message.includes('skipped')) {
           continue;
         } else {
           throw err;
@@ -3707,7 +3732,13 @@ export class Connection {
           // eslint-disable-next-line require-atomic-updates
           sub.subscriptionId = null;
         }
-        console.error(`${rpcMethod} error for argument`, rpcArgs, err.message);
+        if (err instanceof Error) {
+          console.error(
+            `${rpcMethod} error for argument`,
+            rpcArgs,
+            err.message,
+          );
+        }
       }
     }
   }
@@ -3725,7 +3756,9 @@ export class Connection {
       try {
         await this._rpcWebSocket.call(rpcMethod, [unsubscribeId]);
       } catch (err) {
-        console.error(`${rpcMethod} error:`, err.message);
+        if (err instanceof Error) {
+          console.error(`${rpcMethod} error:`, err.message);
+        }
       }
     }
   }

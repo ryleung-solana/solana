@@ -5,6 +5,7 @@ use crate::{
         ACCOUNTS_DB_CONFIG_FOR_TESTING,
     },
     accounts_index::{AccountSecondaryIndexes, IndexKey, ScanResult},
+    accounts_update_notifier_interface::AccountsUpdateNotifier,
     ancestors::Ancestors,
     bank::{
         NonceRollbackFull, NonceRollbackInfo, RentDebits, TransactionCheckResult,
@@ -139,6 +140,7 @@ impl Accounts {
             caching_enabled,
             shrink_ratio,
             Some(ACCOUNTS_DB_CONFIG_FOR_TESTING),
+            None,
         )
     }
 
@@ -156,6 +158,7 @@ impl Accounts {
             caching_enabled,
             shrink_ratio,
             Some(ACCOUNTS_DB_CONFIG_FOR_BENCHMARKS),
+            None,
         )
     }
 
@@ -166,6 +169,7 @@ impl Accounts {
         caching_enabled: bool,
         shrink_ratio: AccountShrinkThreshold,
         accounts_db_config: Option<AccountsDbConfig>,
+        accounts_update_notifier: Option<AccountsUpdateNotifier>,
     ) -> Self {
         Self {
             accounts_db: Arc::new(AccountsDb::new_with_config(
@@ -175,6 +179,7 @@ impl Accounts {
                 caching_enabled,
                 shrink_ratio,
                 accounts_db_config,
+                accounts_update_notifier,
             )),
             account_locks: Mutex::new(AccountLocks::default()),
         }
@@ -241,7 +246,6 @@ impl Accounts {
             let rent_for_sysvars = feature_set.is_active(&feature_set::rent_for_sysvars::id());
             let demote_program_write_locks =
                 feature_set.is_active(&feature_set::demote_program_write_locks::id());
-            let is_upgradeable_loader_present = is_upgradeable_loader_present(message);
 
             for (i, key) in message.account_keys_iter().enumerate() {
                 let account = if !message.is_non_loader_key(i) {
@@ -280,7 +284,7 @@ impl Accounts {
                         if bpf_loader_upgradeable::check_id(account.owner()) {
                             if demote_program_write_locks
                                 && message.is_writable(i, demote_program_write_locks)
-                                && !is_upgradeable_loader_present
+                                && !message.is_upgradeable_loader_present()
                             {
                                 error_counters.invalid_writable_account += 1;
                                 return Err(TransactionError::InvalidWritableAccount);
@@ -813,6 +817,15 @@ impl Accounts {
         )
     }
 
+    pub fn hold_range_in_memory<R>(&self, range: &R, start_holding: bool)
+    where
+        R: RangeBounds<Pubkey> + std::fmt::Debug,
+    {
+        self.accounts_db
+            .accounts_index
+            .hold_range_in_memory(range, start_holding)
+    }
+
     pub fn load_to_collect_rent_eagerly<R: RangeBounds<Pubkey> + std::fmt::Debug>(
         &self,
         ancestors: &Ancestors,
@@ -1124,12 +1137,6 @@ pub fn prepare_if_nonce_account(
     false
 }
 
-fn is_upgradeable_loader_present(message: &SanitizedMessage) -> bool {
-    message
-        .account_keys_iter()
-        .any(|&key| key == bpf_loader_upgradeable::id())
-}
-
 pub fn create_test_accounts(
     accounts: &Accounts,
     pubkeys: &mut Vec<Pubkey>,
@@ -1238,6 +1245,59 @@ mod tests {
     ) -> Vec<TransactionLoadResult> {
         let fee_calculator = FeeCalculator::default();
         load_accounts_with_fee(tx, ka, &fee_calculator, error_counters)
+    }
+
+    #[test]
+    fn test_hold_range_in_memory() {
+        let accts = Accounts::default_for_tests();
+        let range = Pubkey::new(&[0; 32])..=Pubkey::new(&[0xff; 32]);
+        accts.hold_range_in_memory(&range, true);
+        accts.hold_range_in_memory(&range, false);
+        accts.hold_range_in_memory(&range, true);
+        accts.hold_range_in_memory(&range, true);
+        accts.hold_range_in_memory(&range, false);
+        accts.hold_range_in_memory(&range, false);
+    }
+
+    #[test]
+    fn test_hold_range_in_memory2() {
+        let accts = Accounts::default_for_tests();
+        let range = Pubkey::new(&[0; 32])..=Pubkey::new(&[0xff; 32]);
+        let idx = &accts.accounts_db.accounts_index;
+        let bins = idx.account_maps.len();
+        // use bins * 2 to get the first half of the range within bin 0
+        let bins_2 = bins * 2;
+        let binner = crate::pubkey_bins::PubkeyBinCalculator16::new(bins_2);
+        let range2 =
+            binner.lowest_pubkey_from_bin(0, bins_2)..binner.lowest_pubkey_from_bin(1, bins_2);
+        let range2_inclusive = range2.start..=range2.end;
+        assert_eq!(0, idx.bin_calculator.bin_from_pubkey(&range2.start));
+        assert_eq!(0, idx.bin_calculator.bin_from_pubkey(&range2.end));
+        accts.hold_range_in_memory(&range, true);
+        idx.account_maps.iter().enumerate().for_each(|(_bin, map)| {
+            let map = map.read().unwrap();
+            assert_eq!(
+                map.cache_ranges_held.read().unwrap().to_vec(),
+                vec![Some(range.clone())]
+            );
+        });
+        accts.hold_range_in_memory(&range2, true);
+        idx.account_maps.iter().enumerate().for_each(|(bin, map)| {
+            let map = map.read().unwrap();
+            let expected = if bin == 0 {
+                vec![Some(range.clone()), Some(range2_inclusive.clone())]
+            } else {
+                vec![Some(range.clone())]
+            };
+            assert_eq!(
+                map.cache_ranges_held.read().unwrap().to_vec(),
+                expected,
+                "bin: {}",
+                bin
+            );
+        });
+        accts.hold_range_in_memory(&range, false);
+        accts.hold_range_in_memory(&range2, false);
     }
 
     #[test]

@@ -31,11 +31,11 @@ use solana_sdk::{
     clock::Clock,
     entrypoint::{HEAP_LENGTH, SUCCESS},
     feature_set::{
-        add_missing_program_error_mappings, close_upgradeable_program_accounts,
-        stop_verify_mul64_imm_nonzero,
+        add_missing_program_error_mappings, close_upgradeable_program_accounts, do_support_realloc,
+        fix_write_privs, reduce_required_deploy_balance, stop_verify_mul64_imm_nonzero,
     },
     ic_logger_msg, ic_msg,
-    instruction::InstructionError,
+    instruction::{AccountMeta, InstructionError},
     keyed_account::{from_keyed_account, keyed_account_at_index, KeyedAccount},
     loader_instruction::LoaderInstruction,
     loader_upgradeable_instruction::UpgradeableLoaderInstruction,
@@ -150,12 +150,19 @@ pub fn create_vm<'a>(
     program: &'a dyn Executable<BpfError, ThisInstructionMeter>,
     parameter_bytes: &mut [u8],
     invoke_context: &'a mut dyn InvokeContext,
+    orig_data_lens: &'a [usize],
 ) -> Result<EbpfVm<'a, BpfError, ThisInstructionMeter>, EbpfError<BpfError>> {
     let compute_budget = invoke_context.get_compute_budget();
     let mut heap =
         AlignedMemory::new_with_size(compute_budget.heap_size.unwrap_or(HEAP_LENGTH), HOST_ALIGN);
     let mut vm = EbpfVm::new(program, heap.as_slice_mut(), parameter_bytes)?;
-    syscalls::bind_syscall_context_objects(loader_id, &mut vm, invoke_context, heap)?;
+    syscalls::bind_syscall_context_objects(
+        loader_id,
+        &mut vm,
+        invoke_context,
+        heap,
+        orig_data_lens,
+    )?;
     Ok(vm)
 }
 
@@ -390,13 +397,30 @@ fn process_loader_upgradeable_instruction(
                 return Err(InstructionError::InvalidArgument);
             }
 
-            let instruction = system_instruction::create_account(
+            let predrain_buffer = invoke_context
+                .is_feature_active(&reduce_required_deploy_balance::id())
+                && invoke_context.is_feature_active(&fix_write_privs::id());
+            if predrain_buffer {
+                // Drain the Buffer account to payer before paying for programdata account
+                payer
+                    .try_account_ref_mut()?
+                    .checked_add_lamports(buffer.lamports()?)?;
+                buffer.try_account_ref_mut()?.set_lamports(0);
+            }
+
+            let mut instruction = system_instruction::create_account(
                 payer.unsigned_key(),
                 programdata.unsigned_key(),
                 1.max(rent.minimum_balance(programdata_len)),
                 programdata_len as u64,
                 program_id,
             );
+
+            // pass an extra account to avoid the overly strict UnbalancedInstruction error
+            instruction
+                .accounts
+                .push(AccountMeta::new(*buffer.unsigned_key(), false));
+
             let caller_program_id = invoke_context.get_caller()?;
             let signers = [&[new_program_id.as_ref(), &[bump_seed]]]
                 .iter()
@@ -405,7 +429,7 @@ fn process_loader_upgradeable_instruction(
             InstructionProcessor::native_invoke(
                 invoke_context,
                 instruction,
-                &[0, 1, 6],
+                &[0, 1, 3, 6],
                 signers.as_slice(),
             )?;
 
@@ -434,11 +458,13 @@ fn process_loader_upgradeable_instruction(
             })?;
             program.try_account_ref_mut()?.set_executable(true);
 
-            // Drain the Buffer account back to the payer
-            payer
-                .try_account_ref_mut()?
-                .checked_add_lamports(buffer.lamports()?)?;
-            buffer.try_account_ref_mut()?.set_lamports(0);
+            if !predrain_buffer {
+                // Drain the Buffer account back to the payer
+                payer
+                    .try_account_ref_mut()?
+                    .checked_add_lamports(buffer.lamports()?)?;
+                buffer.try_account_ref_mut()?.set_lamports(0);
+            }
 
             ic_logger_msg!(logger, "Deployed program {:?}", new_program_id);
         }
@@ -872,7 +898,7 @@ impl Executor for BpfExecutor {
 
         let mut serialize_time = Measure::start("serialize");
         let keyed_accounts = invoke_context.get_keyed_accounts()?;
-        let mut parameter_bytes =
+        let (mut parameter_bytes, account_lengths) =
             serialize_parameters(loader_id, program_id, keyed_accounts, instruction_data)?;
         serialize_time.stop();
         let mut create_vm_time = Measure::start("create_vm");
@@ -884,6 +910,7 @@ impl Executor for BpfExecutor {
                 self.executable.as_ref(),
                 parameter_bytes.as_slice_mut(),
                 invoke_context,
+                &account_lengths,
             ) {
                 Ok(info) => info,
                 Err(e) => {
@@ -918,9 +945,9 @@ impl Executor for BpfExecutor {
                 trace!("BPF Program Instruction Trace:\n{}", trace_string);
             }
             drop(vm);
-            let return_data = invoke_context.get_return_data();
-            if let Some((program_id, return_data)) = return_data {
-                stable_log::program_return_data(&logger, program_id, return_data);
+            let (program_id, return_data) = invoke_context.get_return_data();
+            if !return_data.is_empty() {
+                stable_log::program_return(&logger, &program_id, return_data);
             }
             match result {
                 Ok(status) => {
@@ -933,7 +960,7 @@ impl Executor for BpfExecutor {
                         } else {
                             status.into()
                         };
-                        stable_log::program_failure(&logger, program_id, &error);
+                        stable_log::program_failure(&logger, &program_id, &error);
                         return Err(error);
                     }
                 }
@@ -947,7 +974,7 @@ impl Executor for BpfExecutor {
                             InstructionError::ProgramFailedToComplete
                         }
                     };
-                    stable_log::program_failure(&logger, program_id, &error);
+                    stable_log::program_failure(&logger, &program_id, &error);
                     return Err(error);
                 }
             }
@@ -955,7 +982,13 @@ impl Executor for BpfExecutor {
         }
         let mut deserialize_time = Measure::start("deserialize");
         let keyed_accounts = invoke_context.get_keyed_accounts()?;
-        deserialize_parameters(loader_id, keyed_accounts, parameter_bytes.as_slice())?;
+        deserialize_parameters(
+            loader_id,
+            keyed_accounts,
+            parameter_bytes.as_slice(),
+            &account_lengths,
+            invoke_context.is_feature_active(&do_support_realloc::id()),
+        )?;
         deserialize_time.stop();
         invoke_context.update_timing(
             serialize_time.as_us(),
@@ -987,6 +1020,7 @@ mod tests {
         instruction::{AccountMeta, InstructionError},
         keyed_account::KeyedAccount,
         message::Message,
+        native_token::LAMPORTS_PER_SOL,
         process_instruction::{MockComputeMeter, MockInvokeContext},
         pubkey::Pubkey,
         rent::Rent,
@@ -1638,40 +1672,54 @@ mod tests {
         bank.feature_set = Arc::new(FeatureSet::all_enabled());
         bank.add_builtin(
             "solana_bpf_loader_upgradeable_program",
-            bpf_loader_upgradeable::id(),
+            &bpf_loader_upgradeable::id(),
             process_instruction,
         );
         let bank = Arc::new(bank);
         let bank_client = BankClient::new_shared(&bank);
 
-        // Setup initial accounts
+        // Setup keypairs and addresses
+        let payer_keypair = Keypair::new();
         let program_keypair = Keypair::new();
+        let buffer_address = Pubkey::new_unique();
         let (programdata_address, _) = Pubkey::find_program_address(
             &[program_keypair.pubkey().as_ref()],
             &bpf_loader_upgradeable::id(),
         );
         let upgrade_authority_keypair = Keypair::new();
+
+        // Load program file
         let mut file = File::open("test_elfs/noop_aligned.so").expect("file open failed");
         let mut elf = Vec::new();
         file.read_to_end(&mut elf).unwrap();
+
+        // Compute rent exempt balances
+        let program_len = elf.len();
         let min_program_balance = bank
             .get_minimum_balance_for_rent_exemption(UpgradeableLoaderState::program_len().unwrap());
+        let min_buffer_balance = bank.get_minimum_balance_for_rent_exemption(
+            UpgradeableLoaderState::buffer_len(program_len).unwrap(),
+        );
         let min_programdata_balance = bank.get_minimum_balance_for_rent_exemption(
-            UpgradeableLoaderState::programdata_len(elf.len()).unwrap(),
+            UpgradeableLoaderState::programdata_len(program_len).unwrap(),
         );
-        let buffer_address = Pubkey::new_unique();
-        let mut buffer_account = AccountSharedData::new(
-            min_programdata_balance,
-            UpgradeableLoaderState::buffer_len(elf.len()).unwrap(),
-            &bpf_loader_upgradeable::id(),
-        );
-        buffer_account
-            .set_state(&UpgradeableLoaderState::Buffer {
-                authority_address: Some(upgrade_authority_keypair.pubkey()),
-            })
-            .unwrap();
-        buffer_account.data_as_mut_slice()[UpgradeableLoaderState::buffer_data_offset().unwrap()..]
-            .copy_from_slice(&elf);
+
+        // Setup accounts
+        let buffer_account = {
+            let mut account = AccountSharedData::new(
+                min_buffer_balance,
+                UpgradeableLoaderState::buffer_len(elf.len()).unwrap(),
+                &bpf_loader_upgradeable::id(),
+            );
+            account
+                .set_state(&UpgradeableLoaderState::Buffer {
+                    authority_address: Some(upgrade_authority_keypair.pubkey()),
+                })
+                .unwrap();
+            account.data_as_mut_slice()[UpgradeableLoaderState::buffer_data_offset().unwrap()..]
+                .copy_from_slice(&elf);
+            account
+        };
         let program_account = AccountSharedData::new(
             min_programdata_balance,
             UpgradeableLoaderState::program_len().unwrap(),
@@ -1684,14 +1732,27 @@ mod tests {
         );
 
         // Test successful deploy
-        bank.clear_signatures();
+        let payer_base_balance = LAMPORTS_PER_SOL;
+        let deploy_fees = {
+            let fee_calculator = genesis_config.fee_rate_governor.create_fee_calculator();
+            3 * fee_calculator.lamports_per_signature
+        };
+        let min_payer_balance =
+            min_program_balance + min_programdata_balance - min_buffer_balance + deploy_fees;
+        bank.store_account(
+            &payer_keypair.pubkey(),
+            &AccountSharedData::new(
+                payer_base_balance + min_payer_balance,
+                0,
+                &system_program::id(),
+            ),
+        );
         bank.store_account(&buffer_address, &buffer_account);
         bank.store_account(&program_keypair.pubkey(), &AccountSharedData::default());
         bank.store_account(&programdata_address, &AccountSharedData::default());
-        let before = bank.get_balance(&mint_keypair.pubkey());
         let message = Message::new(
             &bpf_loader_upgradeable::deploy_with_max_program_len(
-                &mint_keypair.pubkey(),
+                &payer_keypair.pubkey(),
                 &program_keypair.pubkey(),
                 &buffer_address,
                 &upgrade_authority_keypair.pubkey(),
@@ -1699,17 +1760,17 @@ mod tests {
                 elf.len(),
             )
             .unwrap(),
-            Some(&mint_keypair.pubkey()),
+            Some(&payer_keypair.pubkey()),
         );
         assert!(bank_client
             .send_and_confirm_message(
-                &[&mint_keypair, &program_keypair, &upgrade_authority_keypair],
+                &[&payer_keypair, &program_keypair, &upgrade_authority_keypair],
                 message
             )
             .is_ok());
         assert_eq!(
-            bank.get_balance(&mint_keypair.pubkey()),
-            before - min_program_balance
+            bank.get_balance(&payer_keypair.pubkey()),
+            payer_base_balance
         );
         assert_eq!(bank.get_balance(&buffer_address), 0);
         assert_eq!(None, bank.get_account(&buffer_address));
@@ -1991,11 +2052,12 @@ mod tests {
                 .unwrap()
         );
 
-        // Test Insufficient payer funds
+        // Test Insufficient payer funds (need more funds to cover the
+        // difference between buffer lamports and programdata lamports)
         bank.clear_signatures();
         bank.store_account(
             &mint_keypair.pubkey(),
-            &AccountSharedData::new(min_program_balance, 0, &system_program::id()),
+            &AccountSharedData::new(deploy_fees + min_program_balance, 0, &system_program::id()),
         );
         bank.store_account(&buffer_address, &buffer_account);
         bank.store_account(&program_keypair.pubkey(), &AccountSharedData::default());

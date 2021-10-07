@@ -28,6 +28,7 @@ use crate::{
         SlotSlice, ZeroLamport, ACCOUNTS_INDEX_CONFIG_FOR_BENCHMARKS,
         ACCOUNTS_INDEX_CONFIG_FOR_TESTING,
     },
+    accounts_update_notifier_interface::AccountsUpdateNotifier,
     ancestors::Ancestors,
     append_vec::{AppendVec, StoredAccountMeta, StoredMeta, StoredMetaWriteVersion},
     cache_hash_data::CacheHashData,
@@ -219,6 +220,7 @@ struct GenerateIndexTimings {
     pub storage_size_accounts_map_us: u64,
     pub storage_size_storages_us: u64,
     pub storage_size_accounts_map_flatten_us: u64,
+    pub index_flush_us: u64,
 }
 
 #[derive(Default, Debug, PartialEq)]
@@ -253,6 +255,7 @@ impl GenerateIndexTimings {
                 self.storage_size_accounts_map_flatten_us as i64,
                 i64
             ),
+            ("index_flush_us", self.index_flush_us as i64, i64),
         );
     }
 }
@@ -1035,6 +1038,9 @@ pub struct AccountsDb {
     /// Zero-lamport accounts that are *not* purged during clean because they need to stay alive
     /// for incremental snapshot support.
     zero_lamport_accounts_to_purge_after_full_snapshot: DashSet<(Slot, Pubkey)>,
+
+    /// AccountsDbPlugin accounts update notifier
+    accounts_update_notifier: Option<AccountsUpdateNotifier>,
 }
 
 #[derive(Debug, Default)]
@@ -1502,6 +1508,7 @@ impl AccountsDb {
             shrink_ratio: AccountShrinkThreshold::default(),
             dirty_stores: DashMap::default(),
             zero_lamport_accounts_to_purge_after_full_snapshot: DashSet::default(),
+            accounts_update_notifier: None,
         }
     }
 
@@ -1513,6 +1520,7 @@ impl AccountsDb {
             false,
             AccountShrinkThreshold::default(),
             Some(ACCOUNTS_DB_CONFIG_FOR_TESTING),
+            None,
         )
     }
 
@@ -1523,6 +1531,7 @@ impl AccountsDb {
         caching_enabled: bool,
         shrink_ratio: AccountShrinkThreshold,
         accounts_db_config: Option<AccountsDbConfig>,
+        accounts_update_notifier: Option<AccountsUpdateNotifier>,
     ) -> Self {
         let accounts_index =
             AccountsIndex::new(accounts_db_config.as_ref().and_then(|x| x.index.clone()));
@@ -1537,6 +1546,7 @@ impl AccountsDb {
                 account_indexes,
                 caching_enabled,
                 shrink_ratio,
+                accounts_update_notifier,
                 ..Self::default_with_accounts_index(accounts_index, accounts_hash_cache_path)
             }
         } else {
@@ -2774,10 +2784,10 @@ impl AccountsDb {
     pub fn shrink_all_slots(&self, is_startup: bool, last_full_snapshot_slot: Option<Slot>) {
         const DIRTY_STORES_CLEANING_THRESHOLD: usize = 10_000;
         const OUTER_CHUNK_SIZE: usize = 2000;
-        const INNER_CHUNK_SIZE: usize = OUTER_CHUNK_SIZE / 8;
         if is_startup && self.caching_enabled {
             let slots = self.all_slots_in_storage();
-            let inner_chunk_size = std::cmp::max(INNER_CHUNK_SIZE, 1);
+            let threads = num_cpus::get();
+            let inner_chunk_size = std::cmp::max(OUTER_CHUNK_SIZE / threads, 1);
             slots.chunks(OUTER_CHUNK_SIZE).for_each(|chunk| {
                 chunk.par_chunks(inner_chunk_size).for_each(|slots| {
                     for slot in slots {
@@ -4203,6 +4213,7 @@ impl AccountsDb {
             {
                 let stored_size = offsets[1] - offsets[0];
                 storage.add_account(stored_size);
+
                 infos.push(AccountInfo {
                     store_id: storage.append_vec_id(),
                     offset: offsets[0],
@@ -4222,6 +4233,7 @@ impl AccountsDb {
         self.stats
             .store_find_store
             .fetch_add(total_storage_find_us, Ordering::Relaxed);
+
         infos
     }
 
@@ -5919,6 +5931,16 @@ impl AccountsDb {
 
     pub fn store_cached(&self, slot: Slot, accounts: &[(&Pubkey, &AccountSharedData)]) {
         self.store(slot, accounts, self.caching_enabled);
+
+        if let Some(accounts_update_notifier) = &self.accounts_update_notifier {
+            let notifier = &accounts_update_notifier.read().unwrap();
+
+            for account in accounts {
+                let pubkey = account.0;
+                let account = account.1;
+                notifier.notify_account_update(slot, pubkey, account);
+            }
+        }
     }
 
     /// Store the account update.
@@ -6408,6 +6430,9 @@ impl AccountsDb {
         // verify checks that all the expected items are in the accounts index and measures how long it takes to look them all up
         let passes = if verify { 2 } else { 1 };
         for pass in 0..passes {
+            if pass == 0 {
+                self.accounts_index.set_startup(true);
+            }
             let storage_info = StorageSizeAndCountMap::default();
             let total_processed_slots_across_all_threads = AtomicU64::new(0);
             let outer_slots_len = slots.len();
@@ -6496,7 +6521,17 @@ impl AccountsDb {
 
             let storage_info_timings = storage_info_timings.into_inner().unwrap();
 
+            let mut index_flush_us = 0;
+            if pass == 0 {
+                // tell accounts index we are done adding the initial accounts at startup
+                let mut m = Measure::start("accounts_index_idle_us");
+                self.accounts_index.set_startup(false);
+                m.stop();
+                index_flush_us = m.as_us();
+            }
+
             let mut timings = GenerateIndexTimings {
+                index_flush_us,
                 scan_time,
                 index_time: index_time.as_us(),
                 insertion_time_us: insertion_time_us.load(Ordering::Relaxed),
@@ -6647,6 +6682,24 @@ impl AccountsDb {
             }
         }
     }
+
+    pub fn notify_account_restore_from_snapshot(&self) {
+        if let Some(accounts_update_notifier) = &self.accounts_update_notifier {
+            let notifier = &accounts_update_notifier.read().unwrap();
+            let slots = self.storage.all_slots();
+            for slot in &slots {
+                let slot_stores = self.storage.get_slot_stores(*slot).unwrap();
+
+                let slot_stores = slot_stores.read().unwrap();
+                for (_, storage_entry) in slot_stores.iter() {
+                    let accounts = storage_entry.all_accounts();
+                    for account in &accounts {
+                        notifier.notify_account_restore_from_snapshot(*slot, account);
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -6669,6 +6722,7 @@ impl AccountsDb {
             caching_enabled,
             shrink_ratio,
             Some(ACCOUNTS_DB_CONFIG_FOR_TESTING),
+            None,
         )
     }
 
@@ -8652,11 +8706,6 @@ pub mod tests {
         assert_eq!(
             daccounts.write_version.load(Ordering::Relaxed),
             accounts.write_version.load(Ordering::Relaxed)
-        );
-
-        assert_eq!(
-            daccounts.next_id.load(Ordering::Relaxed),
-            accounts.next_id.load(Ordering::Relaxed)
         );
 
         // Get the hash for the latest slot, which should be the only hash in the
