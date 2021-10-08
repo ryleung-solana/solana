@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::{RwLock, RwLockWriteGuard};
 
-type LockedBucket<T> = Arc<RwLock<Option<Bucket<T>>>>;
+type LockedBucket<T> = RwLock<Option<Bucket<T>>>;
 
 pub struct BucketApi<T: Clone + Copy> {
     drives: Arc<Vec<PathBuf>>,
@@ -30,7 +30,7 @@ impl<T: Clone + Copy> BucketApi<T> {
             drives,
             max_search,
             stats,
-            bucket: Arc::default(),
+            bucket: RwLock::default(),
         }
     }
 
@@ -89,6 +89,8 @@ impl<T: Clone + Copy> BucketApi<T> {
                 self.max_search,
                 Arc::clone(&self.stats),
             ));
+        } else {
+            bucket.as_mut().unwrap().handle_delayed_grows();
         }
         bucket
     }
@@ -111,8 +113,11 @@ impl<T: Clone + Copy> BucketApi<T> {
     }
 
     pub fn grow(&self, err: BucketMapError) {
-        let mut bucket = self.get_write_bucket();
-        bucket.as_mut().unwrap().grow(err)
+        // grows are special - they get a read lock and modify 'reallocated'
+        // the grown changes are applied the next time there is a write lock taken
+        if let Some(bucket) = self.bucket.read().unwrap().as_ref() {
+            bucket.grow(err)
+        }
     }
 
     pub fn update<F>(&self, key: &Pubkey, updatefn: F)

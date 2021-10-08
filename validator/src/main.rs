@@ -1059,7 +1059,7 @@ pub fn main() {
                 .value_name("HOST")
                 .takes_value(true)
                 .validator(solana_net_utils::is_host)
-                .help("IP address to bind the RPC port [default: use --bind-address]"),
+                .help("IP address to bind the RPC port [default: 127.0.0.1 if --private-rpc is present, otherwise use --bind-address]"),
         )
         .arg(
             Arg::with_name("rpc_threads")
@@ -1441,6 +1441,14 @@ pub fn main() {
                 .long("allow-private-addr")
                 .takes_value(false)
                 .help("Allow contacting private ip addresses")
+                .hidden(true),
+        )
+        .arg(
+            Arg::with_name("disable_epoch_boundary_optimization")
+                .long("disable-epoch-boundary-optimization")
+                .takes_value(false)
+                .help("Disables epoch boundary optimization and overrides the \
+                optimize_epoch_boundary_updates feature switch if enabled.")
                 .hidden(true),
         )
         .after_help("The default subcommand is run")
@@ -1828,6 +1836,8 @@ pub fn main() {
     let rpc_bind_address = if matches.is_present("rpc_bind_address") {
         solana_net_utils::parse_host(matches.value_of("rpc_bind_address").unwrap())
             .expect("invalid rpc_bind_address")
+    } else if private_rpc {
+        solana_net_utils::parse_host("127.0.0.1").unwrap()
     } else {
         bind_address
     };
@@ -2070,6 +2080,8 @@ pub fn main() {
         tpu_coalesce_ms,
         no_wait_for_vote_to_start_leader: matches.is_present("no_wait_for_vote_to_start_leader"),
         accounts_shrink_ratio,
+        disable_epoch_boundary_optimization: matches
+            .is_present("disable_epoch_boundary_optimization"),
         ..ValidatorConfig::default()
     };
 

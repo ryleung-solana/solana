@@ -216,6 +216,7 @@ struct GenerateIndexTimings {
     pub insertion_time_us: u64,
     pub min_bin_size: usize,
     pub max_bin_size: usize,
+    #[allow(dead_code)]
     pub total_items: usize,
     pub storage_size_accounts_map_us: u64,
     pub storage_size_storages_us: u64,
@@ -971,11 +972,13 @@ pub struct AccountsDb {
 
     // used by tests
     // holds this until we are dropped
+    #[allow(dead_code)]
     temp_accounts_hash_cache_path: Option<TempDir>,
 
     pub shrink_paths: RwLock<Option<Vec<PathBuf>>>,
 
     /// Directory of paths this accounts_db needs to hold/remove
+    #[allow(dead_code)]
     pub(crate) temp_paths: Option<Vec<TempDir>>,
 
     /// Starting file size of appendvecs
@@ -1168,9 +1171,13 @@ impl PurgeStats {
 
 #[derive(Debug)]
 struct FlushStats {
+    #[allow(dead_code)]
     slot: Slot,
+    #[allow(dead_code)]
     num_flushed: usize,
+    #[allow(dead_code)]
     num_purged: usize,
+    #[allow(dead_code)]
     total_size: u64,
 }
 
@@ -1182,6 +1189,8 @@ struct LatestAccountsIndexRootsStats {
     roots_range: AtomicU64,
     rooted_cleaned_count: AtomicUsize,
     unrooted_cleaned_count: AtomicUsize,
+    clean_unref_from_storage_us: AtomicU64,
+    clean_dead_slot_us: AtomicU64,
 }
 
 impl LatestAccountsIndexRootsStats {
@@ -1204,6 +1213,14 @@ impl LatestAccountsIndexRootsStats {
         );
         self.unrooted_cleaned_count.fetch_add(
             accounts_index_roots_stats.unrooted_cleaned_count,
+            Ordering::Relaxed,
+        );
+        self.clean_unref_from_storage_us.fetch_add(
+            accounts_index_roots_stats.clean_unref_from_storage_us,
+            Ordering::Relaxed,
+        );
+        self.clean_dead_slot_us.fetch_add(
+            accounts_index_roots_stats.clean_dead_slot_us,
             Ordering::Relaxed,
         );
     }
@@ -1239,6 +1256,16 @@ impl LatestAccountsIndexRootsStats {
             (
                 "rooted_cleaned_count",
                 self.rooted_cleaned_count.swap(0, Ordering::Relaxed) as i64,
+                i64
+            ),
+            (
+                "clean_unref_from_storage_us",
+                self.clean_unref_from_storage_us.swap(0, Ordering::Relaxed) as i64,
+                i64
+            ),
+            (
+                "clean_dead_slot_us",
+                self.clean_dead_slot_us.swap(0, Ordering::Relaxed) as i64,
                 i64
             ),
         );
@@ -1538,30 +1565,23 @@ impl AccountsDb {
         let accounts_hash_cache_path = accounts_db_config
             .as_ref()
             .and_then(|x| x.accounts_hash_cache_path.clone());
-        let mut new = if !paths.is_empty() {
-            Self {
-                paths,
-                temp_paths: None,
-                cluster_type: Some(*cluster_type),
-                account_indexes,
-                caching_enabled,
-                shrink_ratio,
-                accounts_update_notifier,
-                ..Self::default_with_accounts_index(accounts_index, accounts_hash_cache_path)
-            }
-        } else {
+        let paths_is_empty = paths.is_empty();
+        let mut new = Self {
+            paths,
+            cluster_type: Some(*cluster_type),
+            account_indexes,
+            caching_enabled,
+            shrink_ratio,
+            accounts_update_notifier,
+            ..Self::default_with_accounts_index(accounts_index, accounts_hash_cache_path)
+        };
+        if paths_is_empty {
             // Create a temporary set of accounts directories, used primarily
             // for testing
             let (temp_dirs, paths) = get_temp_accounts_paths(DEFAULT_NUM_DIRS).unwrap();
-            Self {
-                paths,
-                temp_paths: Some(temp_dirs),
-                cluster_type: Some(*cluster_type),
-                account_indexes,
-                caching_enabled,
-                shrink_ratio,
-                ..Self::default_with_accounts_index(accounts_index, accounts_hash_cache_path)
-            }
+            new.accounts_update_notifier = None;
+            new.paths = paths;
+            new.temp_paths = Some(temp_dirs);
         };
 
         new.start_background_hasher();
@@ -1942,6 +1962,7 @@ impl AccountsDb {
 
         let total_keys_count = pubkeys.len();
         let mut accounts_scan = Measure::start("accounts_scan");
+        let uncleaned_roots_len = self.accounts_index.uncleaned_roots_len();
         // parallel scan the index.
         let (mut purges_zero_lamports, purges_old_accounts) = {
             let do_clean_scan = || {
@@ -2141,6 +2162,7 @@ impl AccountsDb {
             ("delta_key_count", key_timings.delta_key_count, i64),
             ("dirty_pubkeys_count", key_timings.dirty_pubkeys_count, i64),
             ("total_keys_count", total_keys_count, i64),
+            ("uncleaned_roots_len", uncleaned_roots_len, i64),
         );
     }
 
@@ -3623,10 +3645,10 @@ impl AccountsDb {
             Self::page_align(size),
         ));
 
-        if store.append_vec_id() == CACHE_VIRTUAL_STORAGE_ID {
-            panic!("We've run out of storage ids!");
-        }
-
+        assert!(
+            store.append_vec_id() != CACHE_VIRTUAL_STORAGE_ID,
+            "We've run out of storage ids!"
+        );
         debug!(
             "creating store: {} slot: {} len: {} size: {} from: {} path: {:?}",
             store.append_vec_id(),
@@ -5783,6 +5805,7 @@ impl AccountsDb {
         // Should only be `Some` for non-cached slots
         purged_stored_account_slots: Option<&mut AccountSlots>,
     ) {
+        let mut measure = Measure::start("remove_dead_slots_metadata-ms");
         self.clean_dead_slots_from_accounts_index(
             dead_slots_iter.clone(),
             purged_slot_pubkeys,
@@ -5794,6 +5817,8 @@ impl AccountsDb {
                 bank_hashes.remove(slot);
             }
         }
+        measure.stop();
+        inc_new_counter_info!("remove_dead_slots_metadata-ms", measure.as_ms() as usize);
     }
 
     fn clean_dead_slots_from_accounts_index<'a>(
@@ -5803,30 +5828,49 @@ impl AccountsDb {
         // Should only be `Some` for non-cached slots
         purged_stored_account_slots: Option<&mut AccountSlots>,
     ) {
+        let mut accounts_index_root_stats = AccountsIndexRootsStats::default();
+        let mut measure = Measure::start("unref_from_storage");
         if let Some(purged_stored_account_slots) = purged_stored_account_slots {
+            let len = purged_stored_account_slots.len();
+            // we could build a higher level function in accounts_index to group by bin
+            const BATCH_SIZE: usize = 10_000;
+            let batches = 1 + (len / BATCH_SIZE);
+            self.thread_pool_clean.install(|| {
+                (0..batches).into_par_iter().for_each(|batch| {
+                    let skip = batch * BATCH_SIZE;
+                    for (_slot, pubkey) in purged_slot_pubkeys.iter().skip(skip).take(BATCH_SIZE) {
+                        self.accounts_index.unref_from_storage(pubkey);
+                    }
+                })
+            });
             for (slot, pubkey) in purged_slot_pubkeys {
                 purged_stored_account_slots
                     .entry(pubkey)
                     .or_default()
                     .insert(slot);
-                self.accounts_index.unref_from_storage(&pubkey);
             }
         }
+        measure.stop();
+        accounts_index_root_stats.clean_unref_from_storage_us += measure.as_us();
 
-        let mut accounts_index_root_stats = AccountsIndexRootsStats::default();
+        let mut measure = Measure::start("clean_dead_slot");
         let mut rooted_cleaned_count = 0;
         let mut unrooted_cleaned_count = 0;
         let dead_slots: Vec<_> = dead_slots_iter
             .map(|slot| {
-                if let Some(latest) = self.accounts_index.clean_dead_slot(*slot) {
+                if self
+                    .accounts_index
+                    .clean_dead_slot(*slot, &mut accounts_index_root_stats)
+                {
                     rooted_cleaned_count += 1;
-                    accounts_index_root_stats = latest;
                 } else {
                     unrooted_cleaned_count += 1;
                 }
                 *slot
             })
             .collect();
+        measure.stop();
+        accounts_index_root_stats.clean_dead_slot_us += measure.as_us();
         info!("remove_dead_slots_metadata: slots {:?}", dead_slots);
 
         accounts_index_root_stats.rooted_cleaned_count += rooted_cleaned_count;
@@ -5857,9 +5901,10 @@ impl AccountsDb {
                     .into_par_iter()
                     .map(|store| {
                         let accounts = store.all_accounts();
+                        let slot = store.slot();
                         accounts
                             .into_iter()
-                            .map(|account| (store.slot(), account.meta.pubkey))
+                            .map(|account| (slot, account.meta.pubkey))
                             .collect::<HashSet<(Slot, Pubkey)>>()
                     })
                     .reduce(HashSet::new, |mut reduced, store_pubkeys| {
@@ -11700,11 +11745,10 @@ pub mod tests {
             let slot_accounts = accounts_db.scan_account_storage(
                 *slot as Slot,
                 |loaded_account: LoadedAccount| {
-                    if is_cache_at_limit {
-                        panic!(
-                            "When cache is at limit, all roots should have been flushed to storage"
-                        );
-                    }
+                    assert!(
+                        !is_cache_at_limit,
+                        "When cache is at limit, all roots should have been flushed to storage"
+                    );
                     // All slots <= requested_flush_root should have been flushed, regardless
                     // of ongoing scans
                     assert!(*slot > requested_flush_root);

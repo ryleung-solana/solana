@@ -4,7 +4,9 @@ use solana_sdk::{
     account::{AccountSharedData, ReadableAccount, WritableAccount},
     account_utils::StateMut,
     bpf_loader_upgradeable::{self, UpgradeableLoaderState},
-    feature_set::{demote_program_write_locks, do_support_realloc, fix_write_privs},
+    feature_set::{
+        demote_program_write_locks, do_support_realloc, fix_write_privs, remove_native_loader,
+    },
     ic_msg,
     instruction::{Instruction, InstructionError},
     message::Message,
@@ -21,17 +23,10 @@ use std::{
     sync::Arc,
 };
 
+#[derive(Default)]
 pub struct Executors {
     pub executors: HashMap<Pubkey, Arc<dyn Executor>>,
     pub is_dirty: bool,
-}
-impl Default for Executors {
-    fn default() -> Self {
-        Self {
-            executors: HashMap::default(),
-            is_dirty: false,
-        }
-    }
 }
 impl Executors {
     pub fn insert(&mut self, key: Pubkey, executor: Arc<dyn Executor>) {
@@ -267,7 +262,7 @@ impl PreAccount {
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 pub struct InstructionProcessor {
     #[serde(skip)]
     programs: Vec<(Pubkey, ProcessInstructionWithContext)>,
@@ -279,13 +274,16 @@ impl std::fmt::Debug for InstructionProcessor {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         #[derive(Debug)]
         struct MessageProcessor<'a> {
+            #[allow(dead_code)]
             programs: Vec<String>,
+            #[allow(dead_code)]
             native_loader: &'a NativeLoader,
         }
 
         // These are just type aliases for work around of Debug-ing above pointers
         type ErasedProcessInstructionWithContext = fn(
             &'static Pubkey,
+            usize,
             &'static [u8],
             &'static mut dyn InvokeContext,
         ) -> Result<(), InstructionError>;
@@ -309,14 +307,6 @@ impl std::fmt::Debug for InstructionProcessor {
     }
 }
 
-impl Default for InstructionProcessor {
-    fn default() -> Self {
-        Self {
-            programs: vec![],
-            native_loader: NativeLoader::default(),
-        }
-    }
-}
 impl Clone for InstructionProcessor {
     fn clone(&self) -> Self {
         InstructionProcessor {
@@ -372,23 +362,35 @@ impl InstructionProcessor {
             if solana_sdk::native_loader::check_id(&root_account.owner()?) {
                 for (id, process_instruction) in &self.programs {
                     if id == root_id {
-                        invoke_context.remove_first_keyed_account()?;
                         // Call the builtin program
-                        return process_instruction(program_id, instruction_data, invoke_context);
+                        return process_instruction(
+                            program_id,
+                            1, // root_id to be skipped
+                            instruction_data,
+                            invoke_context,
+                        );
                     }
                 }
-                // Call the program via the native loader
-                return self.native_loader.process_instruction(
-                    &solana_sdk::native_loader::id(),
-                    instruction_data,
-                    invoke_context,
-                );
+                if !invoke_context.is_feature_active(&remove_native_loader::id()) {
+                    // Call the program via the native loader
+                    return self.native_loader.process_instruction(
+                        &solana_sdk::native_loader::id(),
+                        0,
+                        instruction_data,
+                        invoke_context,
+                    );
+                }
             } else {
                 let owner_id = &root_account.owner()?;
                 for (id, process_instruction) in &self.programs {
                     if id == owner_id {
                         // Call the program via a builtin loader
-                        return process_instruction(program_id, instruction_data, invoke_context);
+                        return process_instruction(
+                            program_id,
+                            0, // no root_id was provided
+                            instruction_data,
+                            invoke_context,
+                        );
                     }
                 }
             }
@@ -1083,6 +1085,7 @@ mod tests {
         #[allow(clippy::unnecessary_wraps)]
         fn mock_process_instruction(
             _program_id: &Pubkey,
+            _first_instruction_account: usize,
             _data: &[u8],
             _invoke_context: &mut dyn InvokeContext,
         ) -> Result<(), InstructionError> {
@@ -1091,6 +1094,7 @@ mod tests {
         #[allow(clippy::unnecessary_wraps)]
         fn mock_ix_processor(
             _pubkey: &Pubkey,
+            _first_instruction_account: usize,
             _data: &[u8],
             _context: &mut dyn InvokeContext,
         ) -> Result<(), InstructionError> {
