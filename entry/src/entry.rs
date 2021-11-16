@@ -33,6 +33,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 use std::{cmp, thread};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 thread_local!(static PAR_THREAD_POOL: RefCell<ThreadPool> = RefCell::new(rayon::ThreadPoolBuilder::new()
                     .num_threads(get_thread_count())
@@ -460,33 +461,36 @@ pub fn start_verify_transactions(
                 packets.packets.set_len(num_transactions);
             }
 
-            let mut curr_packet: usize = 0;
-            for (_i, entry) in entries.iter().enumerate() {
+            let curr_packet = AtomicU64::new(0);
+
+            let res = entries.par_iter().all(|entry| {
                 match entry {
                     EntryType::Transactions(transactions) => {
-                        for hashed_tx in transactions {
-                            packets.packets[curr_packet].meta = Meta::default();
+                        transactions.par_iter().all(|hashed_tx| {
+                            let idx = curr_packet.fetch_add(1, Ordering::SeqCst);
+                            let idx = idx as usize;
+
+                            packets.packets[idx].meta = Meta::default();
                             
                             let res = Packet::populate_packet(
-                                &mut packets.packets[curr_packet],
+                                &mut packets.packets[idx],
                                 None,
                                 &hashed_tx.to_versioned_transaction(),
                             );
-                            if !res.is_ok() {
-                                let transaction_duration_us = timing::duration_as_us(&check_start.elapsed());
-                                return EntrySigVerificationState {
-                                    verification_status: EntryVerificationStatus::Failure,
-                                    entries: None,
-                                    device_verification_data: DeviceSigVerificationData::Cpu(),
-                                    verify_duration_us: transaction_duration_us,
-                                };
-                            }
-
-                            curr_packet = curr_packet + 1;
-                        }
+                            res.is_ok()
+                        })
                     }
-                    EntryType::Tick(_) => {}
-                }
+                    EntryType::Tick(_) => true
+                }});
+
+            if !res {
+                let transaction_duration_us = timing::duration_as_us(&check_start.elapsed());
+                return EntrySigVerificationState {
+                    verification_status: EntryVerificationStatus::Failure,
+                    entries: None,
+                    device_verification_data: DeviceSigVerificationData::Cpu(),
+                    verify_duration_us: transaction_duration_us,
+                };
             }
             
             let mut packets = vec![packets];
