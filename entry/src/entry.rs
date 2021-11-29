@@ -522,25 +522,17 @@ pub fn start_verify_transactions(
             packets.packets.resize(num_transactions, Packet::default());
 
             {
-                let unsafe_packets = UnsafeSlice::new(&mut packets.packets[0..num_transactions]);
-
-                let curr_packet = AtomicUsize::new(0);
-
-                let res = entries.par_iter().all(|entry| match entry {
-                    EntryType::Transactions(transactions) => {
-                        transactions.par_iter().all(|hashed_tx| {
-                            let idx = curr_packet.fetch_add(1, Ordering::SeqCst);
-
-                            unsafe {
-                                Packet::populate_packet(
-                                    &mut (*unsafe_packets.slice[idx].get()),
-                                    None,
-                                    &hashed_tx.to_versioned_transaction(),
-                                ).is_ok()
-                            }
-                        })
-                    }
-                    EntryType::Tick(_) => true,
+                let entry_tx_iter= entries.par_iter().filter_map(|entry_type| match entry_type {
+                    EntryType::Tick(_) => None,
+                    EntryType::Transactions(transactions) => Some(transactions.par_iter().map(|tx|{tx.to_versioned_transaction()}).collect::<Vec<_>>())
+                  }).flatten().collect::<Vec<_>>();
+                  
+                  let res = packets.packets.par_iter_mut().zip(entry_tx_iter).all(|pair| {
+                    Packet::populate_packet(
+                    pair.0,
+                    None,
+                    &pair.1,
+                ).is_ok()
                 });
 
                 if !res {
@@ -551,7 +543,7 @@ pub fn start_verify_transactions(
                         device_verification_data: DeviceSigVerificationData::Cpu(),
                         verify_duration_us: transaction_duration_us,
                     };
-                }
+                } 
             }
 
             let mut packets = vec![packets];
