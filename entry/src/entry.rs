@@ -520,9 +520,7 @@ pub fn start_verify_transactions(
                 num_transactions,
                 "entry-sig-verify",
             );
-            unsafe {
-                packets.packets.set_len(num_transactions);
-            }
+            packets.packets.resize(num_transactions, Packet::default());
 
             {
                 let unsafe_packets = UnsafeSlice::new(&mut packets.packets[0..num_transactions]);
