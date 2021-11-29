@@ -22,7 +22,6 @@ use solana_perf::{
 };
 use solana_rayon_threadlimit::get_thread_count;
 use solana_sdk::hash::Hash;
-use solana_sdk::packet::Meta;
 use solana_sdk::timing;
 use solana_sdk::transaction::{
     Result, SanitizedTransaction, Transaction, TransactionVerificationMode, VersionedTransaction,
@@ -533,14 +532,11 @@ pub fn start_verify_transactions(
                             let idx = curr_packet.fetch_add(1, Ordering::SeqCst);
 
                             unsafe {
-                                (*unsafe_packets.slice[idx].get()).meta = Meta::default();
-
-                                let res = Packet::populate_packet(
+                                Packet::populate_packet(
                                     &mut (*unsafe_packets.slice[idx].get()),
                                     None,
                                     &hashed_tx.to_versioned_transaction(),
-                                );
-                                res.is_ok()
+                                ).is_ok()
                             }
                         })
                     }
