@@ -7,7 +7,7 @@ use {
 };
 
 #[tokio::test]
-async fn test_transaction_too_large() {
+async fn test_large_transaction() {
     let (mut banks_client, payer, recent_blockhash) = ProgramTest::default().start().await;
 
     let mut transaction = Transaction::new_with_payer(
@@ -23,12 +23,8 @@ async fn test_transaction_too_large() {
     );
     transaction.sign(&[&payer], recent_blockhash);
 
-    /*assert_eq!(
-        "transport transaction error: Transaction too large",
-        &banks_client
-            .process_transaction(transaction)
-            .await
-            .unwrap_err()
-            .to_string(),
-    );*/
+    let _res = &banks_client
+    .process_transaction(transaction)
+    .await
+    .unwrap();
 }
