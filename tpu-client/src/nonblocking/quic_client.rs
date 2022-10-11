@@ -4,7 +4,7 @@
 use {
     crate::{
         connection_cache_stats::ConnectionCacheStats, nonblocking::tpu_connection::TpuConnection,
-        tpu_connection::ClientStats,
+        quic_client::RUNTIME, tpu_connection::ClientStats,
     },
     async_mutex::Mutex,
     async_trait::async_trait,
@@ -32,7 +32,10 @@ use {
     },
     std::{
         net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
-        sync::{atomic::Ordering, Arc},
+        sync::{
+            atomic::{AtomicU64, Ordering},
+            Arc,
+        },
         thread,
         time::Duration,
     },
@@ -271,6 +274,8 @@ pub struct QuicClient {
     addr: SocketAddr,
     stats: Arc<ClientStats>,
     chunk_size: usize,
+    // report the number of running/scheduled send tasks
+    num_tasks: Arc<AtomicU64>,
 }
 
 impl QuicClient {
@@ -285,6 +290,7 @@ impl QuicClient {
             addr,
             stats: Arc::new(ClientStats::default()),
             chunk_size,
+            num_tasks: RUNTIME.num_tasks.clone(),
         }
     }
 
@@ -404,25 +410,30 @@ impl QuicClient {
                 .update_stat(&self.stats.tx_acks, new_stats.frame_tx.acks);
 
             last_connection_id = connection.connection.stable_id();
+            self.num_tasks.fetch_add(1, Ordering::Relaxed);
             match Self::_send_buffer_using_conn(data, &connection).await {
                 Ok(()) => {
+                    self.num_tasks.fetch_sub(1, Ordering::Relaxed);
                     return Ok(connection);
                 }
-                Err(err) => match err {
-                    QuicError::ConnectionError(_) => {
-                        last_error = Some(err);
+                Err(err) => {
+                    self.num_tasks.fetch_sub(1, Ordering::Relaxed);
+                    match err {
+                        QuicError::ConnectionError(_) => {
+                            last_error = Some(err);
+                        }
+                        _ => {
+                            info!(
+                                "Error sending to {} with id {}, error {:?} thread: {:?}",
+                                self.addr,
+                                connection.connection.stable_id(),
+                                err,
+                                thread::current().id(),
+                            );
+                            return Err(err);
+                        }
                     }
-                    _ => {
-                        info!(
-                            "Error sending to {} with id {}, error {:?} thread: {:?}",
-                            self.addr,
-                            connection.connection.stable_id(),
-                            err,
-                            thread::current().id(),
-                        );
-                        return Err(err);
-                    }
-                },
+                }
             }
         }
 
@@ -488,11 +499,12 @@ impl QuicClient {
         let futures: Vec<_> = chunks
             .into_iter()
             .map(|buffs| {
-                join_all(
-                    buffs
-                        .into_iter()
-                        .map(|buf| Self::_send_buffer_using_conn(buf.as_ref(), connection_ref)),
-                )
+                join_all(buffs.into_iter().map(|buf| async {
+                    self.num_tasks.fetch_add(1, Ordering::Relaxed);
+                    let res = Self::_send_buffer_using_conn(buf.as_ref(), connection_ref).await;
+                    self.num_tasks.fetch_sub(1, Ordering::Relaxed);
+                    res
+                }))
             })
             .collect();
 

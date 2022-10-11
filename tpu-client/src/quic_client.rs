@@ -15,16 +15,82 @@ use {
     },
     lazy_static::lazy_static,
     solana_sdk::transport::Result as TransportResult,
-    std::{net::SocketAddr, sync::Arc},
+    std::{
+        net::SocketAddr,
+        sync::{
+            atomic::{AtomicBool, AtomicU64, Ordering},
+            Arc,
+        },
+        thread::{sleep, Builder, JoinHandle},
+        time::Duration,
+    },
     tokio::runtime::Runtime,
 };
 
 lazy_static! {
-    static ref RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
-        .thread_name("quic-client")
-        .enable_all()
-        .build()
-        .unwrap();
+    pub(crate) static ref RUNTIME: RuntimeWrapper = RuntimeWrapper::new();
+}
+
+pub(crate) struct RuntimeWrapper {
+    pub(crate) runtime: Runtime,
+    pub(crate) num_tasks: Arc<AtomicU64>,
+    exit: Arc<AtomicBool>,
+    sampling_thread: Option<JoinHandle<()>>,
+}
+
+impl RuntimeWrapper {
+    fn sample_loop(exit: Arc<AtomicBool>, num_tasks: Arc<AtomicU64>) {
+        while !exit.load(Ordering::Relaxed) {
+            datapoint_info!(
+                "quic-runtime-stats",
+                ("send_tasks", num_tasks.load(Ordering::Relaxed), i64)
+            );
+            let millis = Duration::from_millis(100);
+            sleep(millis);
+        }
+    }
+    pub fn new() -> Self {
+        let num_tasks = Arc::new(AtomicU64::new(0));
+        let exit = Arc::new(AtomicBool::new(false));
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .thread_name("quic-client")
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let sampling_thread = {
+            let exit_clone = exit.clone();
+            let num_tasks_clone = num_tasks.clone();
+
+            Some(
+                Builder::new()
+                    .name("quic-send-tasks-sampler".to_string())
+                    .spawn(move || {
+                        Self::sample_loop(exit_clone, num_tasks_clone);
+                    })
+                    .unwrap(),
+            )
+        };
+
+        Self {
+            runtime,
+            num_tasks,
+            exit,
+            sampling_thread,
+        }
+    }
+}
+
+impl Drop for RuntimeWrapper {
+    fn drop(&mut self) {
+        self.exit.store(true, Ordering::Relaxed);
+        self.sampling_thread
+            .take()
+            .unwrap()
+            .join()
+            .expect("quic send tasks reporting thread failed to join");
+    }
 }
 
 pub struct QuicTpuConnection {
@@ -65,21 +131,27 @@ impl TpuConnection for QuicTpuConnection {
     where
         T: AsRef<[u8]> + Send + Sync,
     {
-        RUNTIME.block_on(self.inner.send_wire_transaction_batch(buffers))?;
+        RUNTIME
+            .runtime
+            .block_on(self.inner.send_wire_transaction_batch(buffers))?;
         Ok(())
     }
 
     fn send_wire_transaction_async(&self, wire_transaction: Vec<u8>) -> TransportResult<()> {
         let inner = self.inner.clone();
         //drop and detach the task
-        let _ = RUNTIME.spawn(async move { inner.send_wire_transaction(wire_transaction).await });
+        let _ = RUNTIME
+            .runtime
+            .spawn(async move { inner.send_wire_transaction(wire_transaction).await });
         Ok(())
     }
 
     fn send_wire_transaction_batch_async(&self, buffers: Vec<Vec<u8>>) -> TransportResult<()> {
         let inner = self.inner.clone();
         //drop and detach the task
-        let _ = RUNTIME.spawn(async move { inner.send_wire_transaction_batch(&buffers).await });
+        let _ = RUNTIME
+            .runtime
+            .spawn(async move { inner.send_wire_transaction_batch(&buffers).await });
         Ok(())
     }
 }
