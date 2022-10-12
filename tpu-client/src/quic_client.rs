@@ -45,7 +45,7 @@ impl RuntimeWrapper {
                 "quic-runtime-stats",
                 ("send_tasks", num_tasks.load(Ordering::Relaxed), i64)
             );
-            let millis = Duration::from_millis(100);
+            let millis = Duration::from_millis(2);
             sleep(millis);
         }
     }
