@@ -41,7 +41,7 @@ pub(crate) struct RuntimeWrapper {
 impl RuntimeWrapper {
     fn sample_loop(exit: Arc<AtomicBool>, num_tasks: Arc<AtomicU64>) {
         while !exit.load(Ordering::Relaxed) {
-            datapoint_info!(
+            datapoint_warn!(
                 "quic-runtime-stats",
                 ("send_tasks", num_tasks.load(Ordering::Relaxed), i64)
             );
