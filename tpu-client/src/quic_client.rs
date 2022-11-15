@@ -25,6 +25,12 @@ use {
 };
 
 const MAX_OUTSTANDING_TASK: u64 = 2000;
+// Based on the 2000 send task limit for single sends and the 128
+// unstaked batch size, so that we're limited to roughly the
+// same number of streams for batch sends. TODO: figure out a way to
+// make this adaptive in the staked case. Also TODO: perhaps we need
+// to reduce the budget for MAX_OUTSTANDING_TASK?
+const MAX_BATCH_SENDS: u64 = 15;
 const SEND_TRANSACTION_TIMEOUT_MS: u64 = 10000;
 
 /// A semaphore used for limiting the number of asynchronous tasks spawn to the
@@ -71,6 +77,10 @@ impl AsyncTaskSemaphore {
 lazy_static! {
     static ref ASYNC_TASK_SEMAPHORE: AsyncTaskSemaphore =
         AsyncTaskSemaphore::new(MAX_OUTSTANDING_TASK);
+
+    static ref ASYNC_BATCH_TASK_SEMAPHORE: AsyncTaskSemaphore =
+        AsyncTaskSemaphore::new(MAX_BATCH_SENDS);
+
     static ref RUNTIME: Runtime = tokio::runtime::Builder::new_multi_thread()
         .thread_name("quic-client")
         .enable_all()
@@ -131,7 +141,7 @@ async fn send_wire_transaction_batch_async(
         connection.send_wire_transaction_batch(&buffers),
     )
     .await;
-    ASYNC_TASK_SEMAPHORE.release();
+    ASYNC_BATCH_TASK_SEMAPHORE.release();
     handle_send_result(result, connection)
 }
 
@@ -178,7 +188,7 @@ impl TpuConnection for QuicTpuConnection {
     }
 
     fn send_wire_transaction_batch_async(&self, buffers: Vec<Vec<u8>>) -> TransportResult<()> {
-        let _lock = ASYNC_TASK_SEMAPHORE.acquire();
+        let _lock = ASYNC_BATCH_TASK_SEMAPHORE.acquire();
         let inner = self.inner.clone();
         let _ =
             RUNTIME.spawn(async move { send_wire_transaction_batch_async(inner, buffers).await });
