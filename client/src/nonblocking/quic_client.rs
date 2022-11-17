@@ -512,10 +512,6 @@ impl QuicTpuConnection {
         self.client.stats()
     }
 
-    pub fn connection_stats(&self) -> Arc<ConnectionCacheStats> {
-        self.connection_stats.clone()
-    }
-
     pub fn new(
         endpoint: Arc<QuicLazyInitializedEndpoint>,
         addr: SocketAddr,
