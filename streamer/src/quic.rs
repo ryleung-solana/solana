@@ -22,11 +22,12 @@ use {
         thread,
         time::SystemTime,
     },
-    tokio::runtime::Runtime,
+    tokio::runtime::{Builder, Runtime},
 };
 
 pub const MAX_STAKED_CONNECTIONS: usize = 2000;
 pub const MAX_UNSTAKED_CONNECTIONS: usize = 500;
+const NUM_QUIC_STREAMER_WORKER_THREADS: usize = 1;
 
 struct SkipClientVerification;
 
@@ -97,11 +98,12 @@ pub(crate) fn configure_server(
 }
 
 fn rt() -> Runtime {
-    tokio::runtime::Builder::new_multi_thread()
-        .thread_name("quic-server")
-        .enable_all()
-        .build()
-        .unwrap()
+    Builder::new_multi_thread()
+    .worker_threads(NUM_QUIC_STREAMER_WORKER_THREADS)
+    .thread_name("quic-server")
+    .enable_all()
+    .build()
+    .unwrap()
 }
 
 #[derive(thiserror::Error, Debug)]
