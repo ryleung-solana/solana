@@ -15,8 +15,8 @@ use {
 
 pub const NUM_PACKETS: usize = 1024 * 8;
 
-pub const PACKETS_PER_BATCH: usize = 64;
-pub const NUM_RCVMMSGS: usize = 64;
+pub const PACKETS_PER_BATCH: usize = 1;
+pub const NUM_RCVMMSGS: usize = 1;
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct PacketBatch {
