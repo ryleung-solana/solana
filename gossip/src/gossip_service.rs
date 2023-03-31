@@ -55,7 +55,7 @@ impl GossipService {
             request_sender,
             Recycler::default(),
             Arc::new(StreamerReceiveStats::new("gossip_receiver")),
-            1,
+            0,
             false,
             None,
         );
