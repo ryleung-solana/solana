@@ -459,7 +459,10 @@ async fn setup_connection(
 ) {
     const PRUNE_RANDOM_SAMPLE_SIZE: usize = 2;
     let from = connecting.remote_address();
-    if let Ok(connecting_result) = timeout(QUIC_CONNECTION_HANDSHAKE_TIMEOUT, connecting).await {
+    stats.connecting_number.fetch_add(1, Ordering::Relaxed);
+    let res = timeout(QUIC_CONNECTION_HANDSHAKE_TIMEOUT, connecting).await;
+    stats.connecting_number.fetch_sub(1, Ordering::Relaxed);
+    if let Ok(connecting_result) = res {
         match connecting_result {
             Ok(new_connection) => {
                 stats.total_new_connections.fetch_add(1, Ordering::Relaxed);

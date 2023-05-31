@@ -155,6 +155,7 @@ pub struct StreamStats {
     pub(crate) connection_setup_error_locally_closed: AtomicUsize,
     pub(crate) connection_removed: AtomicUsize,
     pub(crate) connection_remove_failed: AtomicUsize,
+    pub(crate) connecting_number: AtomicUsize,
 }
 
 impl StreamStats {
@@ -383,6 +384,11 @@ impl StreamStats {
             (
                 "stream_read_timeouts",
                 self.total_stream_read_timeouts.swap(0, Ordering::Relaxed),
+                i64
+            ),
+            (
+                "num_connecting_tasks",
+                self.connecting_number.swap(0, Ordering::Relaxed),
                 i64
             ),
         );
