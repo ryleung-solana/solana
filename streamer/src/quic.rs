@@ -388,7 +388,7 @@ impl StreamStats {
             ),
             (
                 "num_connecting_tasks",
-                self.connecting_number.swap(0, Ordering::Relaxed),
+                self.connecting_number.load(Ordering::Relaxed),
                 i64
             ),
         );
