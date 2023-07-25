@@ -7,7 +7,7 @@ use {
     indexmap::map::IndexMap,
     rand::{thread_rng, Rng},
     solana_measure::measure::Measure,
-    solana_sdk::timing::AtomicInterval,
+    solana_sdk::{timing::AtomicInterval, signature::Keypair},
     std::{
         net::SocketAddr,
         sync::{atomic::Ordering, Arc, RwLock},
@@ -35,6 +35,12 @@ pub trait ConnectionManager {
 
     fn new_connection_pool(&self) -> Self::ConnectionPool;
     fn new_connection_config(&self) -> Self::NewConnectionConfig;
+    fn update_key(&mut self, _key: &Keypair) {}
+}
+
+struct ConnectionMap<R, S> {
+    pub map: IndexMap<SocketAddr, /*ConnectionPool:*/ R>,
+    pub connection_manager: Arc<S>,
 }
 
 pub struct ConnectionCache<
@@ -44,7 +50,11 @@ pub struct ConnectionCache<
 > {
     name: &'static str,
     map: RwLock<IndexMap<SocketAddr, /*ConnectionPool:*/ R>>,
-    connection_manager: S,
+    // todo: figure out a way to make this non-terrible
+    // and have it protected by the same RwLock as map.
+    // NOTE: we set the convention to always acquire this AFTER the RwLock for map
+    // to prevent deadlocks
+    connection_manager: RwLock<S>,
     stats: Arc<ConnectionCacheStats>,
     last_stats: AtomicInterval,
     connection_pool_size: usize,
@@ -79,12 +89,17 @@ where
         Self {
             name,
             map: RwLock::new(IndexMap::with_capacity(MAX_CONNECTIONS)),
+            connection_manager: RwLock::new(connection_manager),
             stats: Arc::new(ConnectionCacheStats::default()),
-            connection_manager,
             last_stats: AtomicInterval::default(),
             connection_pool_size: 1.max(connection_pool_size), // The minimum pool size is 1.
             connection_config,
         }
+    }
+
+    pub(crate) fn update_key(&self, key: &Keypair) {
+        let mut connection_manager =self.connection_manager.write().unwrap();
+        connection_manager.update_key(key);
     }
 
     /// Create a lazy connection object under the exclusive lock of the cache map if there is not
@@ -126,12 +141,14 @@ where
             }
             get_connection_cache_eviction_measure.stop();
 
+            let connection_manager = self.connection_manager.read().unwrap();
+
             map.entry(*addr)
                 .and_modify(|pool| {
                     pool.add_connection(&self.connection_config, addr);
                 })
                 .or_insert_with(|| {
-                    let mut pool = self.connection_manager.new_connection_pool();
+                    let mut pool = connection_manager.new_connection_pool();
                     pool.add_connection(&self.connection_config, addr);
                     pool
                 });
@@ -572,7 +589,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
         {
-            let map = connection_cache.map.read().unwrap();
+            let map = connection_cache.map.read().unwrap().map;
             assert!(map.len() == MAX_CONNECTIONS);
             addrs.iter().for_each(|addr| {
                 let conn = &map.get(addr).expect("Address not found").get(0).unwrap();
@@ -593,7 +610,7 @@ mod tests {
 
         let port = addr.port();
         let addr_with_quic_port = SocketAddr::new(addr.ip(), port);
-        let map = connection_cache.map.read().unwrap();
+        let map = connection_cache.map.read().unwrap().map;
         assert!(map.len() == MAX_CONNECTIONS);
         let _conn = map.get(&addr_with_quic_port).expect("Address not found");
     }

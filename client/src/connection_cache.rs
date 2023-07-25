@@ -8,7 +8,7 @@ use {
         },
     },
     solana_quic_client::{QuicConfig, QuicConnectionManager, QuicPool},
-    solana_sdk::{pubkey::Pubkey, signature::Keypair, transport::Result as TransportResult},
+    solana_sdk::{quic::NotifyKeyUpdate, pubkey::Pubkey, signature::Keypair, transport::Result as TransportResult},
     solana_streamer::streamer::StakedNodes,
     solana_udp_client::{UdpConfig, UdpConnectionManager, UdpPool},
     std::{
@@ -40,6 +40,17 @@ pub enum BlockingClientConnection {
 pub enum NonblockingClientConnection {
     Quic(Arc<<QuicBaseClientConnection as BaseClientConnection>::NonblockingClientConnection>),
     Udp(Arc<<UdpBaseClientConnection as BaseClientConnection>::NonblockingClientConnection>),
+}
+
+impl NotifyKeyUpdate for ConnectionCache {
+    fn update_key(&self, key: &Keypair) {
+        match self {
+            Self::Udp(_) => {},
+            Self::Quic(backend) => {
+                
+            }
+        }
+    }
 }
 
 impl ConnectionCache {
@@ -79,7 +90,7 @@ impl ConnectionCache {
         }
         if let Some(cert_info) = cert_info {
             config
-                .update_client_certificate(cert_info.0, cert_info.1)
+                .update_client_certificate(cert_info.0, Some(cert_info.1))
                 .unwrap();
         }
         if let Some(stake_info) = stake_info {
