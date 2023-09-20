@@ -6051,6 +6051,8 @@ dependencies = [
  "fast-math",
  "hex",
  "matches",
+ "rand 0.7.3",
+ "solana-logger",
  "solana-program",
 ]
 
