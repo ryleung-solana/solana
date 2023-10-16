@@ -986,7 +986,7 @@ impl TestValidator {
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
             config.tpu_enable_udp,
             config.admin_rpc_service_post_init.clone(),
-        )?);
+        )?.0);
 
         // Needed to avoid panics in `solana-responder-gossip` in tests that create a number of
         // test validators concurrently...
