@@ -111,10 +111,10 @@ use {
         genesis_config::GenesisConfig,
         hash::Hash,
         pubkey::Pubkey,
+        quic::NotifyKeyUpdate,
         shred_version::compute_shred_version,
         signature::{Keypair, Signer},
         timing::timestamp,
-        quic::NotifyKeyUpdate,
     },
     solana_send_transaction_service::send_transaction_service,
     solana_streamer::{socket::SocketAddrSpace, streamer::StakedNodes},
@@ -1353,43 +1353,46 @@ impl Validator {
 
         *start_progress.write().unwrap() = ValidatorStartProgress::Running;
         key_notifies.push(connection_cache);
-        Ok((Self {
-            stats_reporter_service,
-            gossip_service,
-            serve_repair_service,
-            json_rpc_service,
-            pubsub_service,
-            rpc_completed_slots_service,
-            optimistically_confirmed_bank_tracker,
-            transaction_status_service,
-            rewards_recorder_service,
-            cache_block_meta_service,
-            entry_notifier_service,
-            system_monitor_service,
-            sample_performance_service,
-            poh_timing_report_service,
-            snapshot_packager_service,
-            completed_data_sets_service,
-            tpu,
-            tvu,
-            poh_service,
-            poh_recorder,
-            ip_echo_server,
-            validator_exit: config.validator_exit.clone(),
-            cluster_info,
-            bank_forks,
-            blockstore,
-            geyser_plugin_service,
-            ledger_metric_report_service,
-            accounts_background_service,
-            accounts_hash_verifier,
-            turbine_quic_endpoint,
-            turbine_quic_endpoint_runtime,
-            turbine_quic_endpoint_join_handle,
-            repair_quic_endpoint,
-            repair_quic_endpoint_runtime,
-            repair_quic_endpoint_join_handle,
-        }, key_notifies))
+        Ok((
+            Self {
+                stats_reporter_service,
+                gossip_service,
+                serve_repair_service,
+                json_rpc_service,
+                pubsub_service,
+                rpc_completed_slots_service,
+                optimistically_confirmed_bank_tracker,
+                transaction_status_service,
+                rewards_recorder_service,
+                cache_block_meta_service,
+                entry_notifier_service,
+                system_monitor_service,
+                sample_performance_service,
+                poh_timing_report_service,
+                snapshot_packager_service,
+                completed_data_sets_service,
+                tpu,
+                tvu,
+                poh_service,
+                poh_recorder,
+                ip_echo_server,
+                validator_exit: config.validator_exit.clone(),
+                cluster_info,
+                bank_forks,
+                blockstore,
+                geyser_plugin_service,
+                ledger_metric_report_service,
+                accounts_background_service,
+                accounts_hash_verifier,
+                turbine_quic_endpoint,
+                turbine_quic_endpoint_runtime,
+                turbine_quic_endpoint_join_handle,
+                repair_quic_endpoint,
+                repair_quic_endpoint_runtime,
+                repair_quic_endpoint_join_handle,
+            },
+            key_notifies,
+        ))
     }
 
     // Used for notifying many nodes in parallel to exit
@@ -2585,7 +2588,8 @@ mod tests {
                     DEFAULT_TPU_ENABLE_UDP,
                     Arc::new(RwLock::new(None)),
                 )
-                .expect("assume successful validator start").0
+                .expect("assume successful validator start")
+                .0
             })
             .collect();
 
