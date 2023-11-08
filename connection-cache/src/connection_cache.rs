@@ -41,14 +41,19 @@ pub trait ConnectionManager: Send + Sync + 'static {
     fn update_key(&mut self, _key: &Keypair) {}
 }
 
+struct ConnectionMap<R, S> {
+    pub map: IndexMap<SocketAddr, /*ConnectionPool:*/ R>,
+    pub connection_manager: Arc<S>,
+}
+
 pub struct ConnectionCache<
     R, // ConnectionPool
     S, // ConnectionManager
     T, // NewConnectionConfig
 > {
     name: &'static str,
-    map: Arc<RwLock<IndexMap<SocketAddr, /*ConnectionPool:*/ R>>>,
-    connection_manager: Arc<RwLock<S>>,
+    map: Arc<RwLock<ConnectionMap<R, S>>>,
+    //connection_manager: Arc<RwLock<S>>,
     stats: Arc<ConnectionCacheStats>,
     last_stats: AtomicInterval,
     connection_pool_size: usize,
@@ -87,17 +92,21 @@ where
 
         let map = Arc::new(RwLock::new(IndexMap::with_capacity(MAX_CONNECTIONS)));
         let config = Arc::new(connection_config);
-        let connection_manager = Arc::new(RwLock::new(connection_manager));
+        let connection_manager = Arc::new(connection_manager);
         let connection_pool_size = 1.max(connection_pool_size); // The minimum pool size is 1.
 
         let stats = Arc::new(ConnectionCacheStats::default());
 
         let _async_connection_thread =
             Self::create_connection_async_thread(map.clone(), receiver, stats.clone());
+        let map = ConnectionMap {
+            map: IndexMap::with_capacity(MAX_CONNECTIONS),
+            connection_manager
+        };
         Self {
             name,
-            map: Arc::new(RwLock::new(IndexMap::with_capacity(MAX_CONNECTIONS))),
-            connection_manager,
+            map: Arc::new(RwLock::new(map)),
+            //connection_manager,
             stats: Arc::new(ConnectionCacheStats::default()),
             last_stats: AtomicInterval::default(),
             connection_pool_size,
@@ -140,9 +149,9 @@ where
 
     pub fn update_key(&self, key: &Keypair) {
         let mut map = self.map.write().unwrap();
-        map.clear();
-        let mut connection_manager = self.connection_manager.write().unwrap();
-        connection_manager.update_key(key);
+        map.map.clear();
+        //let mut connection_manager = self.connection_manager.write().unwrap();
+        map.connection_manager.update_key(key);
     }
     /// Create a lazy connection object under the exclusive lock of the cache map if there is not
     /// enough used connections in the connection pool for the specified address.
@@ -159,7 +168,7 @@ where
         // Read again, as it is possible that between read lock dropped and the write lock acquired
         // another thread could have setup the connection.
 
-        let pool_status = map
+        let pool_status = map.map
             .get(addr)
             .map(|pool| pool.check_pool_status(self.connection_pool_size))
             .unwrap_or(PoolStatus::Empty);
@@ -168,7 +177,7 @@ where
             if matches!(pool_status, PoolStatus::Empty) {
                 Self::create_connection_internal(
                     &self.connection_config,
-                    &self.connection_manager,
+                    //&self.connection_manager,
                     &mut map,
                     addr,
                     self.connection_pool_size,
@@ -183,7 +192,7 @@ where
             debug!("Triggering async connection for {addr:?}");
             Self::create_connection_internal(
                 &self.connection_config,
-                &self.connection_manager,
+                //&self.connection_manager,
                 &mut map,
                 addr,
                 self.connection_pool_size,
@@ -191,7 +200,7 @@ where
             );
         }
 
-        let pool = map.get(addr).unwrap();
+        let pool = map.map.get(addr).unwrap();
         let connection = pool.borrow_connection();
 
         CreateConnectionResult {
@@ -205,8 +214,8 @@ where
 
     fn create_connection_internal(
         config: &C,
-        connection_manager: &RwLock<M>,
-        map: &mut std::sync::RwLockWriteGuard<'_, IndexMap<SocketAddr, P>>,
+        //connection_manager: &RwLock<M>,
+        map: &mut std::sync::RwLockWriteGuard<'_, ConnectionMap<P, M>>,
         addr: &SocketAddr,
         connection_pool_size: usize,
         async_connection_sender: Option<&Sender<(usize, SocketAddr)>>,
@@ -215,8 +224,8 @@ where
         let mut num_evictions = 0;
         let mut get_connection_cache_eviction_measure =
             Measure::start("get_connection_cache_eviction_measure");
-        let existing_index = map.get_index_of(addr);
-        while map.len() >= MAX_CONNECTIONS {
+        let existing_index = map.map.get_index_of(addr);
+        while map.map.len() >= MAX_CONNECTIONS {
             let mut rng = thread_rng();
             let n = rng.gen_range(0..MAX_CONNECTIONS);
             if let Some(index) = existing_index {
@@ -224,14 +233,14 @@ where
                     continue;
                 }
             }
-            map.swap_remove_index(n);
+            map.map.swap_remove_index(n);
             num_evictions += 1;
         }
         get_connection_cache_eviction_measure.stop();
 
         let mut hit_cache = false;
-        let conn_man = connection_manager.read().unwrap();
-        map.entry(*addr)
+        //let conn_man = connection_manager.read().unwrap();
+        map.map.entry(*addr)
             .and_modify(|pool| {
                 if matches!(
                     pool.check_pool_status(connection_pool_size),
@@ -250,7 +259,7 @@ where
                 }
             })
             .or_insert_with(|| {
-                let mut pool = conn_man.new_connection_pool();
+                let mut pool = map.connection_manager.new_connection_pool();
                 pool.add_connection(config, addr);
                 pool
             });
@@ -282,7 +291,7 @@ where
             connection_cache_stats,
             num_evictions,
             eviction_timing_ms,
-        } = match map.get(addr) {
+        } = match map.map.get(addr) {
             Some(pool) => {
                 let pool_status = pool.check_pool_status(self.connection_pool_size);
                 match pool_status {
@@ -299,7 +308,7 @@ where
                             let mut map = self.map.write().unwrap();
                             Self::create_connection_internal(
                                 &self.connection_config,
-                                &self.connection_manager,
+                                //&self.connection_manager,
                                 &mut map,
                                 addr,
                                 self.connection_pool_size,
