@@ -252,7 +252,10 @@ impl ConnectionManager for QuicConnectionManager {
 impl QuicConnectionManager {
     pub fn new_with_connection_config(connection_config: QuicConfig) -> Self {
         let endpoint = Arc::new(connection_config.create_endpoint());
-        Self { connection_config, endpoint }
+        Self {
+            connection_config,
+            endpoint,
+        }
     }
 }
 
