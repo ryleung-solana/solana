@@ -1,5 +1,5 @@
 use {
-    crate::bench_tps_client::{GenericClient, BenchTpsError, Result},
+    crate::{GenericClient, GenericClientError, GenericClientResult},
     solana_connection_cache::connection_cache::{
         ConnectionManager, ConnectionPool, NewConnectionConfig,
     },
@@ -19,16 +19,16 @@ where
     M: ConnectionManager<ConnectionPool = P, NewConnectionConfig = C>,
     C: NewConnectionConfig,
 {
-    fn send_transaction(&self, transaction: Transaction) -> Result<Signature> {
+    fn send_transaction(&self, transaction: Transaction) -> GenericClientResult<Signature> {
         let signature = transaction.signatures[0];
         self.try_send_transaction(&transaction)?;
         Ok(signature)
     }
-    fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()> {
+    fn send_batch(&self, transactions: Vec<Transaction>) -> GenericClientResult<()> {
         self.try_send_transaction_batch(&transactions)?;
         Ok(())
     }
-    fn get_latest_blockhash(&self) -> Result<Hash> {
+    fn get_latest_blockhash(&self) -> GenericClientResult<Hash> {
         self.rpc_client()
             .get_latest_blockhash()
             .map_err(|err| err.into())
@@ -37,13 +37,13 @@ where
     fn get_latest_blockhash_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> Result<(Hash, u64)> {
+    ) -> GenericClientResult<(Hash, u64)> {
         self.rpc_client()
             .get_latest_blockhash_with_commitment(commitment_config)
             .map_err(|err| err.into())
     }
 
-    fn get_transaction_count(&self) -> Result<u64> {
+    fn get_transaction_count(&self) -> GenericClientResult<u64> {
         self.rpc_client()
             .get_transaction_count()
             .map_err(|err| err.into())
@@ -52,17 +52,17 @@ where
     fn get_transaction_count_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> Result<u64> {
+    ) -> GenericClientResult<u64> {
         self.rpc_client()
             .get_transaction_count_with_commitment(commitment_config)
             .map_err(|err| err.into())
     }
 
-    fn get_epoch_info(&self) -> Result<EpochInfo> {
+    fn get_epoch_info(&self) -> GenericClientResult<EpochInfo> {
         self.rpc_client().get_epoch_info().map_err(|err| err.into())
     }
 
-    fn get_balance(&self, pubkey: &Pubkey) -> Result<u64> {
+    fn get_balance(&self, pubkey: &Pubkey) -> GenericClientResult<u64> {
         self.rpc_client()
             .get_balance(pubkey)
             .map_err(|err| err.into())
@@ -72,20 +72,20 @@ where
         &self,
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
-    ) -> Result<u64> {
+    ) -> GenericClientResult<u64> {
         self.rpc_client()
             .get_balance_with_commitment(pubkey, commitment_config)
             .map(|res| res.value)
             .map_err(|err| err.into())
     }
 
-    fn get_fee_for_message(&self, message: &Message) -> Result<u64> {
+    fn get_fee_for_message(&self, message: &Message) -> GenericClientResult<u64> {
         self.rpc_client()
             .get_fee_for_message(message)
             .map_err(|err| err.into())
     }
 
-    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64> {
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> GenericClientResult<u64> {
         self.rpc_client()
             .get_minimum_balance_for_rent_exemption(data_len)
             .map_err(|err| err.into())
@@ -100,13 +100,13 @@ where
         pubkey: &Pubkey,
         lamports: u64,
         recent_blockhash: &Hash,
-    ) -> Result<Signature> {
+    ) -> GenericClientResult<Signature> {
         self.rpc_client()
             .request_airdrop_with_blockhash(pubkey, lamports, recent_blockhash)
             .map_err(|err| err.into())
     }
 
-    fn get_account(&self, pubkey: &Pubkey) -> Result<Account> {
+    fn get_account(&self, pubkey: &Pubkey) -> GenericClientResult<Account> {
         self.rpc_client()
             .get_account(pubkey)
             .map_err(|err| err.into())
@@ -116,25 +116,25 @@ where
         &self,
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
-    ) -> Result<Account> {
+    ) -> GenericClientResult<Account> {
         self.rpc_client()
             .get_account_with_commitment(pubkey, commitment_config)
             .map(|res| res.value)
             .map_err(|err| err.into())
             .and_then(|account| {
                 account.ok_or_else(|| {
-                    BenchTpsError::Custom(format!("AccountNotFound: pubkey={pubkey}"))
+                    GenericClientError::Custom(format!("AccountNotFound: pubkey={pubkey}"))
                 })
             })
     }
 
-    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>> {
+    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> GenericClientResult<Vec<Option<Account>>> {
         self.rpc_client()
             .get_multiple_accounts(pubkeys)
             .map_err(|err| err.into())
     }
 
-    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> Result<Slot> {
+    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> GenericClientResult<Slot> {
         self.rpc_client()
             .get_slot_with_commitment(commitment_config)
             .map_err(|err| err.into())
@@ -145,7 +145,7 @@ where
         start_slot: Slot,
         end_slot: Option<Slot>,
         commitment_config: CommitmentConfig,
-    ) -> Result<Vec<Slot>> {
+    ) -> GenericClientResult<Vec<Slot>> {
         self.rpc_client()
             .get_blocks_with_commitment(start_slot, end_slot, commitment_config)
             .map_err(|err| err.into())
@@ -155,7 +155,7 @@ where
         &self,
         slot: Slot,
         rpc_block_config: RpcBlockConfig,
-    ) -> Result<UiConfirmedBlock> {
+    ) -> GenericClientResult<UiConfirmedBlock> {
         self.rpc_client()
             .get_block_with_config(slot, rpc_block_config)
             .map_err(|err| err.into())

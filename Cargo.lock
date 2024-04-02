@@ -6156,6 +6156,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-generic-client"
+version = "2.0.0"
+dependencies = [
+ "chrono",
+ "clap 2.33.3",
+ "crossbeam-channel",
+ "csv",
+ "log",
+ "rand 0.8.5",
+ "rayon",
+ "serde",
+ "serde_json",
+ "serde_yaml 0.9.32",
+ "serial_test",
+ "solana-clap-utils",
+ "solana-cli-config",
+ "solana-client",
+ "solana-connection-cache",
+ "solana-core",
+ "solana-faucet",
+ "solana-genesis",
+ "solana-gossip",
+ "solana-local-cluster",
+ "solana-logger",
+ "solana-measure",
+ "solana-metrics",
+ "solana-net-utils",
+ "solana-quic-client",
+ "solana-rpc",
+ "solana-rpc-client",
+ "solana-rpc-client-api",
+ "solana-rpc-client-nonce-utils",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-streamer",
+ "solana-test-validator",
+ "solana-tpu-client",
+ "solana-transaction-status",
+ "solana-version",
+ "spl-instruction-padding",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "solana-genesis"
 version = "2.0.0"
 dependencies = [

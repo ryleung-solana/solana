@@ -30,47 +30,47 @@ pub(crate) type GenericClientResult<T> = std::result::Result<T, GenericClientErr
 
 pub trait GenericClient {
     /// Send a signed transaction without confirmation
-    fn send_transaction(&self, transaction: Transaction) -> Result<Signature>;
+    fn send_transaction(&self, transaction: Transaction) -> GenericClientResult<Signature>;
 
     /// Send a batch of signed transactions without confirmation.
-    fn send_batch(&self, transactions: Vec<Transaction>) -> Result<()>;
+    fn send_batch(&self, transactions: Vec<Transaction>) -> GenericClientResult<()>;
 
     /// Get latest blockhash
-    fn get_latest_blockhash(&self) -> Result<Hash>;
+    fn get_latest_blockhash(&self) -> GenericClientResult<Hash>;
 
     /// Get latest blockhash and its last valid block height, using explicit commitment
     fn get_latest_blockhash_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> Result<(Hash, u64)>;
+    ) -> GenericClientResult<(Hash, u64)>;
 
     /// Get transaction count
-    fn get_transaction_count(&self) -> Result<u64>;
+    fn get_transaction_count(&self) -> GenericClientResult<u64>;
 
     /// Get transaction count, using explicit commitment
     fn get_transaction_count_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> Result<u64>;
+    ) -> GenericClientResult<u64>;
 
     /// Get epoch info
-    fn get_epoch_info(&self) -> Result<EpochInfo>;
+    fn get_epoch_info(&self) -> GenericClientResult<EpochInfo>;
 
     /// Get account balance
-    fn get_balance(&self, pubkey: &Pubkey) -> Result<u64>;
+    fn get_balance(&self, pubkey: &Pubkey) -> GenericClientResult<u64>;
 
     /// Get account balance, using explicit commitment
     fn get_balance_with_commitment(
         &self,
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
-    ) -> Result<u64>;
+    ) -> GenericClientResult<u64>;
 
     /// Calculate the fee for a `Message`
-    fn get_fee_for_message(&self, message: &Message) -> Result<u64>;
+    fn get_fee_for_message(&self, message: &Message) -> GenericClientResult<u64>;
 
     /// Get the rent-exempt minimum for an account
-    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> Result<u64>;
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> GenericClientResult<u64>;
 
     /// Return the address of client
     fn addr(&self) -> String;
@@ -81,34 +81,34 @@ pub trait GenericClient {
         pubkey: &Pubkey,
         lamports: u64,
         recent_blockhash: &Hash,
-    ) -> Result<Signature>;
+    ) -> GenericClientResult<Signature>;
 
     /// Returns all information associated with the account of the provided pubkey
-    fn get_account(&self, pubkey: &Pubkey) -> Result<Account>;
+    fn get_account(&self, pubkey: &Pubkey) -> GenericClientResult<Account>;
 
     /// Returns all information associated with the account of the provided pubkey, using explicit commitment
     fn get_account_with_commitment(
         &self,
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
-    ) -> Result<Account>;
+    ) -> GenericClientResult<Account>;
 
-    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> Result<Vec<Option<Account>>>;
+    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> GenericClientResult<Vec<Option<Account>>>;
 
-    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> Result<Slot>;
+    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> GenericClientResult<Slot>;
 
     fn get_blocks_with_commitment(
         &self,
         start_slot: Slot,
         end_slot: Option<Slot>,
         commitment_config: CommitmentConfig,
-    ) -> Result<Vec<Slot>>;
+    ) -> GenericClientResult<Vec<Slot>>;
 
     fn get_block_with_config(
         &self,
         slot: Slot,
         rpc_block_config: RpcBlockConfig,
-    ) -> Result<UiConfirmedBlock>;
+    ) -> GenericClientResult<UiConfirmedBlock>;
 }
 
 mod bank_client;

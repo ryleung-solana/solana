@@ -35,6 +35,7 @@ members = [
     "faucet",
     "frozen-abi",
     "frozen-abi/macro",
+    "generic-client",
     "genesis",
     "genesis-utils",
     "geyser-plugin-interface",
