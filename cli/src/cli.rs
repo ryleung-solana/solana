@@ -2,24 +2,12 @@ use {
     crate::{
         address_lookup_table::*, clap_app::*, cluster_query::*, feature::*, inflation::*, nonce::*,
         program::*, program_v4::*, spend_utils::*, stake::*, validator_info::*, vote::*, wallet::*,
-    },
-    clap::{crate_description, crate_name, value_t_or_exit, ArgMatches, Shell},
-    log::*,
-    num_traits::FromPrimitive,
-    serde_json::{self, Value},
-    solana_clap_utils::{self, input_parsers::*, keypair::*},
-    solana_cli_config::ConfigInput,
-    solana_cli_output::{
+    }, clap::{crate_description, crate_name, value_t_or_exit, ArgMatches, Shell}, log::*, num_traits::FromPrimitive, serde_json::{self, Value}, solana_clap_utils::{self, input_parsers::*, keypair::*}, solana_cli_config::ConfigInput, solana_cli_output::{
         display::println_name_value, CliSignature, CliValidatorsSortOrder, OutputFormat,
-    },
-    solana_remote_wallet::remote_wallet::RemoteWalletManager,
-    solana_rpc_client::rpc_client::RpcClient,
-    solana_rpc_client_api::{
+    }, solana_generic_client::GenericClient, solana_remote_wallet::remote_wallet::RemoteWalletManager, solana_rpc_client::rpc_client::RpcClient, solana_rpc_client_api::{
         client_error::{Error as ClientError, Result as ClientResult},
         config::{RpcLargestAccountsFilter, RpcSendTransactionConfig, RpcTransactionLogsFilter},
-    },
-    solana_rpc_client_nonce_utils::blockhash_query::BlockhashQuery,
-    solana_sdk::{
+    }, solana_rpc_client_nonce_utils::blockhash_query::BlockhashQuery, solana_sdk::{
         clock::{Epoch, Slot},
         commitment_config::CommitmentConfig,
         decode_error::DecodeError,
@@ -30,13 +18,9 @@ use {
         signature::{Signature, Signer, SignerError},
         stake::{instruction::LockupArgs, state::Lockup},
         transaction::{TransactionError, VersionedTransaction},
-    },
-    solana_tpu_client::tpu_client::DEFAULT_TPU_ENABLE_UDP,
-    solana_vote_program::vote_state::VoteAuthorize,
-    std::{
+    }, solana_tpu_client::tpu_client::DEFAULT_TPU_ENABLE_UDP, solana_vote_program::vote_state::VoteAuthorize, std::{
         collections::HashMap, error, io::stdout, rc::Rc, str::FromStr, sync::Arc, time::Duration,
-    },
-    thiserror::Error,
+    }, thiserror::Error
 };
 
 pub const DEFAULT_RPC_TIMEOUT_SECONDS: &str = "30";
@@ -875,6 +859,8 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
         config.rpc_client.as_ref().unwrap().clone()
     };
 
+    let client_dyn = rpc_client.clone() as Arc<dyn GenericClient + 'static>;
+
     match &config.command {
         // Cluster Query Commands
         // Get address of this client
@@ -941,7 +927,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             print_timestamp,
             compute_unit_price,
         } => process_ping(
-            &rpc_client,
+            &client_dyn,
             config,
             interval,
             count,
@@ -949,6 +935,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             blockhash,
             *print_timestamp,
             compute_unit_price.as_ref(),
+            &rpc_client,
         ),
         CliCommand::Rent {
             data_length,

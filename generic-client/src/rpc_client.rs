@@ -5,7 +5,7 @@ use {
     solana_sdk::{
         account::Account, commitment_config::CommitmentConfig, epoch_info::EpochInfo, hash::Hash,
         message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
-        transaction::Transaction,
+        transaction::{Result, Transaction},
     },
     solana_transaction_status::UiConfirmedBlock,
 };
@@ -31,6 +31,17 @@ impl GenericClient for RpcClient {
     ) -> GenericClientResult<(Hash, u64)> {
         RpcClient::get_latest_blockhash_with_commitment(self, commitment_config)
             .map_err(|err| err.into())
+    }
+
+    fn get_new_latest_blockhash(&self, blockhash: &Hash) -> GenericClientResult<Hash> {
+        RpcClient::get_new_latest_blockhash(self, blockhash).map_err(|err| err.into())
+    }
+
+    fn get_signature_status(
+        &self,
+        signature: &Signature,
+    ) -> GenericClientResult<Option<Result<()>>> {
+        RpcClient::get_signature_status(self, signature).map_err(|err| err.into())
     }
 
     fn get_transaction_count(&self) -> GenericClientResult<u64> {

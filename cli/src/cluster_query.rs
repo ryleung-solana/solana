@@ -4,30 +4,20 @@ use {
         compute_budget::WithComputeUnitPrice,
         feature::get_feature_activation_epoch,
         spend_utils::{resolve_spend_tx_and_check_account_balance, SpendAmount},
-    },
-    clap::{value_t, value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand},
-    console::style,
-    crossbeam_channel::unbounded,
-    serde::{Deserialize, Serialize},
-    solana_clap_utils::{
+    }, clap::{value_t, value_t_or_exit, App, AppSettings, Arg, ArgMatches, SubCommand}, console::style, crossbeam_channel::unbounded, serde::{Deserialize, Serialize}, solana_clap_utils::{
         compute_unit_price::{compute_unit_price_arg, COMPUTE_UNIT_PRICE_ARG},
         input_parsers::*,
         input_validators::*,
         keypair::DefaultSigner,
         offline::{blockhash_arg, BLOCKHASH_ARG},
-    },
-    solana_cli_output::{
+    }, solana_cli_output::{
         cli_version::CliVersion,
         display::{
             build_balance_message, format_labeled_address, new_spinner_progress_bar,
             writeln_name_value,
         },
         *,
-    },
-    solana_pubsub_client::pubsub_client::PubsubClient,
-    solana_remote_wallet::remote_wallet::RemoteWalletManager,
-    solana_rpc_client::rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient},
-    solana_rpc_client_api::{
+    }, solana_client::nonblocking::rpc_client, solana_generic_client::GenericClient, solana_pubsub_client::pubsub_client::PubsubClient, solana_remote_wallet::remote_wallet::RemoteWalletManager, solana_rpc_client::rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient}, solana_rpc_client_api::{
         client_error::ErrorKind as ClientErrorKind,
         config::{
             RpcAccountInfoConfig, RpcBlockConfig, RpcGetVoteAccountsConfig,
@@ -58,8 +48,7 @@ use {
         system_instruction::{self, MAX_PERMITTED_DATA_LENGTH},
         sysvar::{self, slot_history::SlotHistory, stake_history},
         transaction::Transaction,
-    },
-    solana_transaction_status::{
+    }, solana_transaction_status::{
         EncodableWithMeta, EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
     },
     solana_vote_program::vote_state::VoteState,
@@ -75,8 +64,7 @@ use {
         },
         thread::sleep,
         time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-    },
-    thiserror::Error,
+    }, thiserror::Error
 };
 
 pub trait ClusterQuerySubCommands {
@@ -1471,7 +1459,7 @@ pub fn process_get_transaction_count(rpc_client: &RpcClient, _config: &CliConfig
 }
 
 pub fn process_ping(
-    rpc_client: &RpcClient,
+    rpc_client: &Arc<dyn GenericClient>,
     config: &CliConfig,
     interval: &Duration,
     count: &Option<u64>,
@@ -1479,6 +1467,7 @@ pub fn process_ping(
     fixed_blockhash: &Option<Hash>,
     print_timestamp: bool,
     compute_unit_price: Option<&u64>,
+    rpc_client2: &RpcClient,
 ) -> ProcessResult {
     let (signal_sender, signal_receiver) = unbounded();
     ctrlc::set_handler(move || {
@@ -1527,7 +1516,7 @@ pub fn process_ping(
             Message::new(&ixs, Some(&config.signers[0].pubkey()))
         };
         let (message, _) = resolve_spend_tx_and_check_account_balance(
-            rpc_client,
+            rpc_client2,
             false,
             SpendAmount::Some(lamports),
             &blockhash,
@@ -1546,7 +1535,7 @@ pub fn process_ping(
             format!("[{}.{:06}] ", micros / 1_000_000, micros % 1_000_000)
         };
 
-        match rpc_client.send_transaction(&tx) {
+        match rpc_client.send_transaction(tx) {
             Ok(signature) => {
                 let transaction_sent = Instant::now();
                 loop {

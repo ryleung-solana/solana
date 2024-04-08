@@ -7,7 +7,7 @@ use {
     solana_sdk::{
         account::Account, commitment_config::CommitmentConfig, epoch_info::EpochInfo, hash::Hash,
         message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
-        transaction::Transaction,
+        transaction::{Result, Transaction},
     },
     solana_tpu_client::tpu_client::TpuClient,
     solana_transaction_status::UiConfirmedBlock,
@@ -41,6 +41,22 @@ where
         self.rpc_client()
             .get_latest_blockhash_with_commitment(commitment_config)
             .map_err(|err| err.into())
+    }
+
+    fn get_new_latest_blockhash(&self, blockhash: &Hash) -> GenericClientResult<Hash> {
+        self.rpc_client()
+            .get_new_latest_blockhash(blockhash)
+            .map_err(|err| err.into())
+    }
+
+
+    fn get_signature_status(
+        &self,
+        signature: &Signature,
+    ) -> GenericClientResult<Option<Result<()>>> {
+        self.rpc_client()
+        .get_signature_status(signature)
+        .map_err(|err| err.into())
     }
 
     fn get_transaction_count(&self) -> GenericClientResult<u64> {

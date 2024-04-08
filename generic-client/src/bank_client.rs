@@ -12,7 +12,7 @@ use {
         pubkey::Pubkey,
         signature::Signature,
         slot_history::Slot,
-        transaction::Transaction,
+        transaction::{Result, Transaction},
     },
     solana_transaction_status::UiConfirmedBlock,
 };
@@ -38,6 +38,18 @@ impl GenericClient for BankClient {
 
     fn get_transaction_count(&self) -> GenericClientResult<u64> {
         SyncClient::get_transaction_count(self).map_err(|err| err.into())
+    }
+
+    // TODO: fix
+    fn get_new_latest_blockhash(&self, _blockhash: &Hash) -> GenericClientResult<Hash> {
+        Ok(Hash::new("Hello world".as_bytes()))
+    }
+
+    fn get_signature_status(
+        &self,
+        signature: &Signature,
+    ) -> GenericClientResult<Option<Result<()>>> {
+        Ok(None)
     }
 
     fn get_transaction_count_with_commitment(
