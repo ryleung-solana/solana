@@ -47,7 +47,7 @@ impl GenericClient for BankClient {
 
     fn get_signature_status(
         &self,
-        signature: &Signature,
+        _signature: &Signature,
     ) -> GenericClientResult<Option<Result<()>>> {
         Ok(None)
     }
@@ -123,11 +123,17 @@ impl GenericClient for BankClient {
             })
     }
 
-    fn get_multiple_accounts(&self, _pubkeys: &[Pubkey]) -> GenericClientResult<Vec<Option<Account>>> {
+    fn get_multiple_accounts(
+        &self,
+        _pubkeys: &[Pubkey],
+    ) -> GenericClientResult<Vec<Option<Account>>> {
         unimplemented!("BankClient doesn't support get_multiple_accounts");
     }
 
-    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> GenericClientResult<Slot> {
+    fn get_slot_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> GenericClientResult<Slot> {
         SyncClient::get_slot_with_commitment(self, commitment_config).map_err(|err| err.into())
     }
 

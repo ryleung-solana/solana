@@ -46,6 +46,9 @@ solana-rpc-client = { workspace = true, features = ["default"] }
 solana-rpc-client-api = { workspace = true }
 solana-rpc-client-nonce-utils = { workspace = true }
 solana-sdk = { workspace = true }
+solana-streamer = { workspace = true }
+solana-quic-client = { workspace = true }
+solana-udp-client = { workspace = true }
 solana-tpu-client = { workspace = true, features = ["default"] }
 solana-transaction-status = { workspace = true }
 solana-version = { workspace = true }

@@ -2,12 +2,26 @@ use {
     crate::{
         address_lookup_table::*, clap_app::*, cluster_query::*, feature::*, inflation::*, nonce::*,
         program::*, program_v4::*, spend_utils::*, stake::*, validator_info::*, vote::*, wallet::*,
-    }, clap::{crate_description, crate_name, value_t_or_exit, ArgMatches, Shell}, log::*, num_traits::FromPrimitive, serde_json::{self, Value}, solana_clap_utils::{self, input_parsers::*, keypair::*}, solana_cli_config::ConfigInput, solana_cli_output::{
+    },
+    clap::{crate_description, crate_name, value_t_or_exit, ArgMatches, Shell},
+    log::*,
+    num_traits::FromPrimitive,
+    serde_json::{self, Value},
+    solana_clap_utils::{self, input_parsers::*, keypair::*},
+    solana_cli_config::ConfigInput,
+    solana_cli_output::{
         display::println_name_value, CliSignature, CliValidatorsSortOrder, OutputFormat,
-    }, solana_generic_client::GenericClient, solana_remote_wallet::remote_wallet::RemoteWalletManager, solana_rpc_client::rpc_client::RpcClient, solana_rpc_client_api::{
+    },
+    solana_client::connection_cache::ConnectionCache,
+    solana_generic_client::GenericClient,
+    solana_remote_wallet::remote_wallet::RemoteWalletManager,
+    solana_rpc_client::rpc_client::RpcClient,
+    solana_rpc_client_api::{
         client_error::{Error as ClientError, Result as ClientResult},
         config::{RpcLargestAccountsFilter, RpcSendTransactionConfig, RpcTransactionLogsFilter},
-    }, solana_rpc_client_nonce_utils::blockhash_query::BlockhashQuery, solana_sdk::{
+    },
+    solana_rpc_client_nonce_utils::blockhash_query::BlockhashQuery,
+    solana_sdk::{
         clock::{Epoch, Slot},
         commitment_config::CommitmentConfig,
         decode_error::DecodeError,
@@ -16,16 +30,31 @@ use {
         offchain_message::OffchainMessage,
         pubkey::Pubkey,
         signature::{Signature, Signer, SignerError},
+        signer::keypair::Keypair,
         stake::{instruction::LockupArgs, state::Lockup},
         transaction::{TransactionError, VersionedTransaction},
-    }, solana_tpu_client::tpu_client::DEFAULT_TPU_ENABLE_UDP, solana_vote_program::vote_state::VoteAuthorize, std::{
-        collections::HashMap, error, io::stdout, rc::Rc, str::FromStr, sync::Arc, time::Duration,
-    }, thiserror::Error
+    },
+    solana_streamer::streamer::StakedNodes,
+    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig, DEFAULT_TPU_ENABLE_UDP},
+    solana_vote_program::vote_state::VoteAuthorize,
+    std::{
+        collections::HashMap,
+        error,
+        io::stdout,
+        net::IpAddr,
+        process::exit,
+        rc::Rc,
+        str::FromStr,
+        sync::{Arc, RwLock},
+        time::Duration,
+    },
+    thiserror::Error,
 };
 
 pub const DEFAULT_RPC_TIMEOUT_SECONDS: &str = "30";
 pub const DEFAULT_CONFIRM_TX_TIMEOUT_SECONDS: &str = "5";
 const CHECKED: bool = true;
+pub const DEFAULT_PING_USE_TPU: bool = false;
 
 #[derive(Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -517,6 +546,7 @@ pub struct CliConfig<'a> {
     pub confirm_transaction_initial_timeout: Duration,
     pub address_labels: HashMap<String, String>,
     pub use_quic: bool,
+    pub use_tpu: bool,
 }
 
 impl CliConfig<'_> {
@@ -565,6 +595,7 @@ impl Default for CliConfig<'_> {
             ),
             address_labels: HashMap::new(),
             use_quic: !DEFAULT_TPU_ENABLE_UDP,
+            use_tpu: DEFAULT_PING_USE_TPU,
         }
     }
 }
@@ -831,6 +862,89 @@ pub fn parse_command(
     Ok(response)
 }
 
+/// Request information about node's stake
+/// If fail to get requested information, return error
+/// Otherwise return stake of the node
+/// along with total activated stake of the network
+fn find_node_activated_stake(
+    rpc_client: Arc<RpcClient>,
+    node_id: Pubkey,
+) -> Result<(u64, u64), ()> {
+    let vote_accounts = rpc_client.get_vote_accounts();
+    if let Err(error) = vote_accounts {
+        error!("Failed to get vote accounts, error: {}", error);
+        return Err(());
+    }
+
+    let vote_accounts = vote_accounts.unwrap();
+
+    let total_active_stake: u64 = vote_accounts
+        .current
+        .iter()
+        .map(|vote_account| vote_account.activated_stake)
+        .sum();
+
+    let node_id_as_str = node_id.to_string();
+    let find_result = vote_accounts
+        .current
+        .iter()
+        .find(|&vote_account| vote_account.node_pubkey == node_id_as_str);
+    match find_result {
+        Some(value) => Ok((value.activated_stake, total_active_stake)),
+        None => {
+            error!("Failed to find stake for requested node");
+            Err(())
+        }
+    }
+}
+
+fn create_connection_cache(
+    json_rpc_url: &str,
+    tpu_connection_pool_size: usize,
+    use_quic: bool,
+    bind_address: IpAddr,
+    client_node_id: Option<&Keypair>,
+    commitment_config: CommitmentConfig,
+) -> ConnectionCache {
+    if !use_quic {
+        return ConnectionCache::with_udp(
+            "bench-tps-connection_cache_udp",
+            tpu_connection_pool_size,
+        );
+    }
+    if client_node_id.is_none() {
+        return ConnectionCache::new_quic(
+            "bench-tps-connection_cache_quic",
+            tpu_connection_pool_size,
+        );
+    }
+
+    let rpc_client = Arc::new(RpcClient::new_with_commitment(
+        json_rpc_url.to_string(),
+        commitment_config,
+    ));
+
+    let client_node_id = client_node_id.unwrap();
+    let (stake, total_stake) =
+        find_node_activated_stake(rpc_client, client_node_id.pubkey()).unwrap_or_default();
+    info!("Stake for specified client_node_id: {stake}, total stake: {total_stake}");
+    let stakes = HashMap::from([
+        (client_node_id.pubkey(), stake),
+        (Pubkey::new_unique(), total_stake - stake),
+    ]);
+    let staked_nodes = Arc::new(RwLock::new(StakedNodes::new(
+        Arc::new(stakes),
+        HashMap::<Pubkey, u64>::default(), // overrides
+    )));
+    ConnectionCache::new_with_client_options(
+        "bench-tps-connection_cache_quic",
+        tpu_connection_pool_size,
+        None,
+        Some((client_node_id, bind_address)),
+        Some((&staked_nodes, &client_node_id.pubkey())),
+    )
+}
+
 pub type ProcessResult = Result<String, Box<dyn std::error::Error>>;
 
 pub fn process_command(config: &CliConfig) -> ProcessResult {
@@ -859,7 +973,44 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
         config.rpc_client.as_ref().unwrap().clone()
     };
 
-    let client_dyn = rpc_client.clone() as Arc<dyn GenericClient + 'static>;
+    let client_dyn: Arc<dyn GenericClient + 'static> = if config.use_tpu {
+        let connection_cache = create_connection_cache(
+            &config.json_rpc_url,
+            16, //fix
+            config.use_quic,
+            "127.0.0.1".parse().unwrap(),
+            None,
+            CommitmentConfig::confirmed(),
+        );
+        match connection_cache {
+            ConnectionCache::Udp(cache) => Arc::new(
+                TpuClient::new_with_connection_cache(
+                    rpc_client.clone(),
+                    &config.websocket_url,
+                    TpuClientConfig::default(),
+                    cache,
+                )
+                .unwrap_or_else(|err| {
+                    eprintln!("Could not create TpuClient {err:?}");
+                    exit(1);
+                }),
+            ),
+            ConnectionCache::Quic(cache) => Arc::new(
+                TpuClient::new_with_connection_cache(
+                    rpc_client.clone(),
+                    &config.websocket_url,
+                    TpuClientConfig::default(),
+                    cache,
+                )
+                .unwrap_or_else(|err| {
+                    eprintln!("Could not create TpuClient {err:?}");
+                    exit(1);
+                }),
+            ),
+        }
+    } else {
+        rpc_client.clone() as Arc<dyn GenericClient + 'static>
+    };
 
     match &config.command {
         // Cluster Query Commands
@@ -873,7 +1024,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             our_localhost_port,
             log,
         } => process_catchup(
-            &rpc_client,
+            &rpc_client.clone(),
             config,
             *node_pubkey,
             node_json_rpc_url.clone(),

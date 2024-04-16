@@ -3,8 +3,14 @@ use {
     solana_rpc_client::rpc_client::RpcClient,
     solana_rpc_client_api::config::RpcBlockConfig,
     solana_sdk::{
-        account::Account, commitment_config::CommitmentConfig, epoch_info::EpochInfo, hash::Hash,
-        message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
+        account::Account,
+        commitment_config::CommitmentConfig,
+        epoch_info::EpochInfo,
+        hash::Hash,
+        message::Message,
+        pubkey::Pubkey,
+        signature::Signature,
+        slot_history::Slot,
         transaction::{Result, Transaction},
     },
     solana_transaction_status::UiConfirmedBlock,
@@ -115,11 +121,17 @@ impl GenericClient for RpcClient {
             })
     }
 
-    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> GenericClientResult<Vec<Option<Account>>> {
+    fn get_multiple_accounts(
+        &self,
+        pubkeys: &[Pubkey],
+    ) -> GenericClientResult<Vec<Option<Account>>> {
         RpcClient::get_multiple_accounts(self, pubkeys).map_err(|err| err.into())
     }
 
-    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> GenericClientResult<Slot> {
+    fn get_slot_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> GenericClientResult<Slot> {
         RpcClient::get_slot_with_commitment(self, commitment_config).map_err(|err| err.into())
     }
 

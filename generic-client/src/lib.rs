@@ -1,9 +1,16 @@
 use {
     solana_rpc_client_api::{client_error::Error as ClientError, config::RpcBlockConfig},
     solana_sdk::{
-        account::Account, commitment_config::CommitmentConfig, epoch_info::EpochInfo, hash::Hash,
-        message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
-        transaction::{Result, Transaction}, transport::TransportError,
+        account::Account,
+        commitment_config::CommitmentConfig,
+        epoch_info::EpochInfo,
+        hash::Hash,
+        message::Message,
+        pubkey::Pubkey,
+        signature::Signature,
+        slot_history::Slot,
+        transaction::{Result, Transaction},
+        transport::TransportError,
     },
     solana_tpu_client::tpu_client::TpuSenderError,
     solana_transaction_status::UiConfirmedBlock,
@@ -100,9 +107,15 @@ pub trait GenericClient {
         commitment_config: CommitmentConfig,
     ) -> GenericClientResult<Account>;
 
-    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> GenericClientResult<Vec<Option<Account>>>;
+    fn get_multiple_accounts(
+        &self,
+        pubkeys: &[Pubkey],
+    ) -> GenericClientResult<Vec<Option<Account>>>;
 
-    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> GenericClientResult<Slot>;
+    fn get_slot_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> GenericClientResult<Slot>;
 
     fn get_blocks_with_commitment(
         &self,

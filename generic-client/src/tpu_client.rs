@@ -5,8 +5,14 @@ use {
     },
     solana_rpc_client_api::config::RpcBlockConfig,
     solana_sdk::{
-        account::Account, commitment_config::CommitmentConfig, epoch_info::EpochInfo, hash::Hash,
-        message::Message, pubkey::Pubkey, signature::Signature, slot_history::Slot,
+        account::Account,
+        commitment_config::CommitmentConfig,
+        epoch_info::EpochInfo,
+        hash::Hash,
+        message::Message,
+        pubkey::Pubkey,
+        signature::Signature,
+        slot_history::Slot,
         transaction::{Result, Transaction},
     },
     solana_tpu_client::tpu_client::TpuClient,
@@ -49,14 +55,13 @@ where
             .map_err(|err| err.into())
     }
 
-
     fn get_signature_status(
         &self,
         signature: &Signature,
     ) -> GenericClientResult<Option<Result<()>>> {
         self.rpc_client()
-        .get_signature_status(signature)
-        .map_err(|err| err.into())
+            .get_signature_status(signature)
+            .map_err(|err| err.into())
     }
 
     fn get_transaction_count(&self) -> GenericClientResult<u64> {
@@ -144,13 +149,19 @@ where
             })
     }
 
-    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> GenericClientResult<Vec<Option<Account>>> {
+    fn get_multiple_accounts(
+        &self,
+        pubkeys: &[Pubkey],
+    ) -> GenericClientResult<Vec<Option<Account>>> {
         self.rpc_client()
             .get_multiple_accounts(pubkeys)
             .map_err(|err| err.into())
     }
 
-    fn get_slot_with_commitment(&self, commitment_config: CommitmentConfig) -> GenericClientResult<Slot> {
+    fn get_slot_with_commitment(
+        &self,
+        commitment_config: CommitmentConfig,
+    ) -> GenericClientResult<Slot> {
         self.rpc_client()
             .get_slot_with_commitment(commitment_config)
             .map_err(|err| err.into())
