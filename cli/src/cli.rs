@@ -30,12 +30,14 @@ use {
         offchain_message::OffchainMessage,
         pubkey::Pubkey,
         signature::{Signature, Signer, SignerError},
-        signer::keypair::Keypair,
+        signer::keypair::{read_keypair_file, Keypair},
         stake::{instruction::LockupArgs, state::Lockup},
         transaction::{TransactionError, VersionedTransaction},
     },
     solana_streamer::streamer::StakedNodes,
-    solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig, DEFAULT_TPU_ENABLE_UDP},
+    solana_tpu_client::tpu_client::{
+        TpuClient, TpuClientConfig, DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP,
+    },
     solana_vote_program::vote_state::VoteAuthorize,
     std::{
         collections::HashMap,
@@ -899,12 +901,11 @@ fn find_node_activated_stake(
 }
 
 fn create_connection_cache(
-    json_rpc_url: &str,
     tpu_connection_pool_size: usize,
     use_quic: bool,
     bind_address: IpAddr,
     client_node_id: Option<&Keypair>,
-    commitment_config: CommitmentConfig,
+    rpc_client: Arc<RpcClient>,
 ) -> ConnectionCache {
     if !use_quic {
         return ConnectionCache::with_udp(
@@ -918,11 +919,6 @@ fn create_connection_cache(
             tpu_connection_pool_size,
         );
     }
-
-    let rpc_client = Arc::new(RpcClient::new_with_commitment(
-        json_rpc_url.to_string(),
-        commitment_config,
-    ));
 
     let client_node_id = client_node_id.unwrap();
     let (stake, total_stake) =
@@ -973,14 +969,15 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
         config.rpc_client.as_ref().unwrap().clone()
     };
 
+    let keypair = read_keypair_file(&config.keypair_path).unwrap();
+
     let client_dyn: Arc<dyn GenericClient + 'static> = if config.use_tpu {
         let connection_cache = create_connection_cache(
-            &config.json_rpc_url,
-            16, //fix
+            DEFAULT_TPU_CONNECTION_POOL_SIZE,
             config.use_quic,
             "127.0.0.1".parse().unwrap(),
-            None,
-            CommitmentConfig::confirmed(),
+            Some(&keypair),
+            rpc_client.clone(),
         );
         match connection_cache {
             ConnectionCache::Udp(cache) => Arc::new(
