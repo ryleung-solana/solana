@@ -926,7 +926,10 @@ fn create_connection_cache(
     info!("Stake for specified client_node_id: {stake}, total stake: {total_stake}");
     let stakes = HashMap::from([
         (client_node_id.pubkey(), stake),
-        (Pubkey::new_unique(), total_stake.checked_sub(stake).unwrap()),
+        (
+            Pubkey::new_unique(),
+            total_stake.checked_sub(stake).unwrap(),
+        ),
     ]);
     let staked_nodes = Arc::new(RwLock::new(StakedNodes::new(
         Arc::new(stakes),
