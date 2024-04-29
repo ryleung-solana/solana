@@ -6183,7 +6183,6 @@ dependencies = [
  "solana-faucet",
  "solana-genesis",
  "solana-gossip",
- "solana-local-cluster",
  "solana-logger",
  "solana-measure",
  "solana-metrics",
