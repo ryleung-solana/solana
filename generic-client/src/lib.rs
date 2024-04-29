@@ -33,7 +33,7 @@ pub enum GenericClientError {
     Custom(String),
 }
 
-pub(crate) type GenericClientResult<T> = std::result::Result<T, GenericClientError>;
+pub type GenericClientResult<T> = std::result::Result<T, GenericClientError>;
 
 pub trait GenericClient {
     /// Send a signed transaction without confirmation

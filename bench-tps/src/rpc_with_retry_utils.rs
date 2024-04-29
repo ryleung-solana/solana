@@ -1,6 +1,6 @@
 use {
-    crate::bench_tps_client::{BenchTpsClient, Result},
     log::*,
+    solana_generic_client::{GenericClient, GenericClientResult},
     solana_sdk::{
         clock::DEFAULT_MS_PER_SLOT, commitment_config::CommitmentConfig, slot_history::Slot,
     },
@@ -10,9 +10,9 @@ use {
 const NUM_RETRY: u64 = 5;
 const RETRY_EVERY_MS: u64 = 4 * DEFAULT_MS_PER_SLOT;
 
-fn call_rpc_with_retry<Func, Data>(f: Func, retry_warning: &str) -> Result<Data>
+fn call_rpc_with_retry<Func, Data>(f: Func, retry_warning: &str) -> GenericClientResult<Data>
 where
-    Func: Fn() -> Result<Data>,
+    Func: Fn() -> GenericClientResult<Data>,
 {
     let mut iretry = 0;
     loop {
@@ -35,9 +35,9 @@ where
 pub(crate) fn get_slot_with_retry<Client>(
     client: &Arc<Client>,
     commitment: CommitmentConfig,
-) -> Result<Slot>
+) -> GenericClientResult<Slot>
 where
-    Client: 'static + BenchTpsClient + Send + Sync + ?Sized,
+    Client: 'static + GenericClient + Send + Sync + ?Sized,
 {
     call_rpc_with_retry(
         || client.get_slot_with_commitment(commitment),
@@ -50,9 +50,9 @@ pub(crate) fn get_blocks_with_retry<Client>(
     start_slot: Slot,
     end_slot: Option<Slot>,
     commitment: CommitmentConfig,
-) -> Result<Vec<Slot>>
+) -> GenericClientResult<Vec<Slot>>
 where
-    Client: 'static + BenchTpsClient + Send + Sync + ?Sized,
+    Client: 'static + GenericClient + Send + Sync + ?Sized,
 {
     call_rpc_with_retry(
         || client.get_blocks_with_commitment(start_slot, end_slot, commitment),
