@@ -972,7 +972,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
         config.rpc_client.as_ref().unwrap().clone()
     };
 
-    let keypair = read_keypair_file(&config.keypair_path).unwrap();
+    let keypair = read_keypair_file(&config.keypair_path).unwrap_or(Keypair::new());
 
     let client_dyn: Arc<dyn GenericClient + 'static> = if config.use_tpu {
         let connection_cache = create_connection_cache(
