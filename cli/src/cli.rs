@@ -56,7 +56,7 @@ use {
 pub const DEFAULT_RPC_TIMEOUT_SECONDS: &str = "30";
 pub const DEFAULT_CONFIRM_TX_TIMEOUT_SECONDS: &str = "5";
 const CHECKED: bool = true;
-pub const DEFAULT_PING_USE_TPU: bool = false;
+pub const DEFAULT_PING_USE_TPU_CLIENT: bool = false;
 
 #[derive(Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -548,7 +548,7 @@ pub struct CliConfig<'a> {
     pub confirm_transaction_initial_timeout: Duration,
     pub address_labels: HashMap<String, String>,
     pub use_quic: bool,
-    pub use_tpu: bool,
+    pub use_tpu_client: bool,
 }
 
 impl CliConfig<'_> {
@@ -597,7 +597,7 @@ impl Default for CliConfig<'_> {
             ),
             address_labels: HashMap::new(),
             use_quic: !DEFAULT_TPU_ENABLE_UDP,
-            use_tpu: DEFAULT_PING_USE_TPU,
+            use_tpu_client: DEFAULT_PING_USE_TPU_CLIENT,
         }
     }
 }
@@ -974,7 +974,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
 
     let keypair = read_keypair_file(&config.keypair_path).unwrap_or(Keypair::new());
 
-    let client_dyn: Arc<dyn TpsClient + 'static> = if config.use_tpu {
+    let client_dyn: Arc<dyn TpsClient + 'static> = if config.use_tpu_client {
         let connection_cache = create_connection_cache(
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
             config.use_quic,
