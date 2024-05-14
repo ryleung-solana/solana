@@ -103,7 +103,7 @@ pub fn get_clap_app<'ab, 'v>(name: &str, about: &'ab str, version: &'v str) -> A
         )
         .arg(
             Arg::with_name("use_tpu")
-                .long("use-tpu")
+                .long("use-tpu-client")
                 .global(true)
                 .help("Use TPU client when sending transactions."),
         )
