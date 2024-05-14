@@ -13,7 +13,6 @@ use {
         display::println_name_value, CliSignature, CliValidatorsSortOrder, OutputFormat,
     },
     solana_client::connection_cache::ConnectionCache,
-    solana_generic_client::GenericClient,
     solana_remote_wallet::remote_wallet::RemoteWalletManager,
     solana_rpc_client::rpc_client::RpcClient,
     solana_rpc_client_api::{
@@ -35,6 +34,7 @@ use {
         transaction::{TransactionError, VersionedTransaction},
     },
     solana_streamer::streamer::StakedNodes,
+    solana_tps_client::TpsClient,
     solana_tpu_client::tpu_client::{
         TpuClient, TpuClientConfig, DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP,
     },
@@ -974,7 +974,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
 
     let keypair = read_keypair_file(&config.keypair_path).unwrap_or(Keypair::new());
 
-    let client_dyn: Arc<dyn GenericClient + 'static> = if config.use_tpu {
+    let client_dyn: Arc<dyn TpsClient + 'static> = if config.use_tpu {
         let connection_cache = create_connection_cache(
             DEFAULT_TPU_CONNECTION_POOL_SIZE,
             config.use_quic,
@@ -1009,7 +1009,7 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             ),
         }
     } else {
-        rpc_client.clone() as Arc<dyn GenericClient + 'static>
+        rpc_client.clone() as Arc<dyn TpsClient + 'static>
     };
 
     match &config.command {

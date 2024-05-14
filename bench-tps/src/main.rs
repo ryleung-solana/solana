@@ -8,7 +8,6 @@ use {
         send_batch::{generate_durable_nonce_accounts, generate_keypairs},
     },
     solana_client::connection_cache::ConnectionCache,
-    solana_generic_client::GenericClient,
     solana_genesis::Base64Account,
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{
@@ -19,6 +18,7 @@ use {
         system_program,
     },
     solana_streamer::streamer::StakedNodes,
+    solana_tps_client::TpsClient,
     solana_tpu_client::tpu_client::{TpuClient, TpuClientConfig},
     std::{
         collections::HashMap,
@@ -124,7 +124,7 @@ fn create_client(
     websocket_url: &str,
     connection_cache: ConnectionCache,
     commitment_config: CommitmentConfig,
-) -> Arc<dyn GenericClient + Send + Sync> {
+) -> Arc<dyn TpsClient + Send + Sync> {
     match external_client_type {
         ExternalClientType::RpcClient => Arc::new(RpcClient::new_with_commitment(
             json_rpc_url.to_string(),

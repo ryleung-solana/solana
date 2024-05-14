@@ -18,7 +18,7 @@ use {
 };
 
 #[derive(Error, Debug)]
-pub enum GenericClientError {
+pub enum TpsClientError {
     #[error("Airdrop failure")]
     AirdropFailure,
     #[error("IO error: {0:?}")]
@@ -33,58 +33,55 @@ pub enum GenericClientError {
     Custom(String),
 }
 
-pub type GenericClientResult<T> = std::result::Result<T, GenericClientError>;
+pub type TpsClientResult<T> = std::result::Result<T, TpsClientError>;
 
-pub trait GenericClient {
+pub trait TpsClient {
     /// Send a signed transaction without confirmation
-    fn send_transaction(&self, transaction: Transaction) -> GenericClientResult<Signature>;
+    fn send_transaction(&self, transaction: Transaction) -> TpsClientResult<Signature>;
 
     /// Send a batch of signed transactions without confirmation.
-    fn send_batch(&self, transactions: Vec<Transaction>) -> GenericClientResult<()>;
+    fn send_batch(&self, transactions: Vec<Transaction>) -> TpsClientResult<()>;
 
     /// Get latest blockhash
-    fn get_latest_blockhash(&self) -> GenericClientResult<Hash>;
+    fn get_latest_blockhash(&self) -> TpsClientResult<Hash>;
 
     /// Get latest blockhash and its last valid block height, using explicit commitment
     fn get_latest_blockhash_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> GenericClientResult<(Hash, u64)>;
+    ) -> TpsClientResult<(Hash, u64)>;
 
-    fn get_new_latest_blockhash(&self, blockhash: &Hash) -> GenericClientResult<Hash>;
+    fn get_new_latest_blockhash(&self, blockhash: &Hash) -> TpsClientResult<Hash>;
 
-    fn get_signature_status(
-        &self,
-        signature: &Signature,
-    ) -> GenericClientResult<Option<Result<()>>>;
+    fn get_signature_status(&self, signature: &Signature) -> TpsClientResult<Option<Result<()>>>;
 
     /// Get transaction count
-    fn get_transaction_count(&self) -> GenericClientResult<u64>;
+    fn get_transaction_count(&self) -> TpsClientResult<u64>;
 
     /// Get transaction count, using explicit commitment
     fn get_transaction_count_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> GenericClientResult<u64>;
+    ) -> TpsClientResult<u64>;
 
     /// Get epoch info
-    fn get_epoch_info(&self) -> GenericClientResult<EpochInfo>;
+    fn get_epoch_info(&self) -> TpsClientResult<EpochInfo>;
 
     /// Get account balance
-    fn get_balance(&self, pubkey: &Pubkey) -> GenericClientResult<u64>;
+    fn get_balance(&self, pubkey: &Pubkey) -> TpsClientResult<u64>;
 
     /// Get account balance, using explicit commitment
     fn get_balance_with_commitment(
         &self,
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
-    ) -> GenericClientResult<u64>;
+    ) -> TpsClientResult<u64>;
 
     /// Calculate the fee for a `Message`
-    fn get_fee_for_message(&self, message: &Message) -> GenericClientResult<u64>;
+    fn get_fee_for_message(&self, message: &Message) -> TpsClientResult<u64>;
 
     /// Get the rent-exempt minimum for an account
-    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> GenericClientResult<u64>;
+    fn get_minimum_balance_for_rent_exemption(&self, data_len: usize) -> TpsClientResult<u64>;
 
     /// Return the address of client
     fn addr(&self) -> String;
@@ -95,40 +92,37 @@ pub trait GenericClient {
         pubkey: &Pubkey,
         lamports: u64,
         recent_blockhash: &Hash,
-    ) -> GenericClientResult<Signature>;
+    ) -> TpsClientResult<Signature>;
 
     /// Returns all information associated with the account of the provided pubkey
-    fn get_account(&self, pubkey: &Pubkey) -> GenericClientResult<Account>;
+    fn get_account(&self, pubkey: &Pubkey) -> TpsClientResult<Account>;
 
     /// Returns all information associated with the account of the provided pubkey, using explicit commitment
     fn get_account_with_commitment(
         &self,
         pubkey: &Pubkey,
         commitment_config: CommitmentConfig,
-    ) -> GenericClientResult<Account>;
+    ) -> TpsClientResult<Account>;
 
-    fn get_multiple_accounts(
-        &self,
-        pubkeys: &[Pubkey],
-    ) -> GenericClientResult<Vec<Option<Account>>>;
+    fn get_multiple_accounts(&self, pubkeys: &[Pubkey]) -> TpsClientResult<Vec<Option<Account>>>;
 
     fn get_slot_with_commitment(
         &self,
         commitment_config: CommitmentConfig,
-    ) -> GenericClientResult<Slot>;
+    ) -> TpsClientResult<Slot>;
 
     fn get_blocks_with_commitment(
         &self,
         start_slot: Slot,
         end_slot: Option<Slot>,
         commitment_config: CommitmentConfig,
-    ) -> GenericClientResult<Vec<Slot>>;
+    ) -> TpsClientResult<Vec<Slot>>;
 
     fn get_block_with_config(
         &self,
         slot: Slot,
         rpc_block_config: RpcBlockConfig,
-    ) -> GenericClientResult<UiConfirmedBlock>;
+    ) -> TpsClientResult<UiConfirmedBlock>;
 }
 
 mod bank_client;

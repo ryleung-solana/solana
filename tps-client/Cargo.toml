@@ -1,5 +1,5 @@
 [package]
-name = "solana-generic-client"
+name = "solana-tps-client"
 publish = false
 version = { workspace = true }
 authors = { workspace = true }

@@ -1,7 +1,7 @@
 use {
     log::*,
-    solana_generic_client::GenericClient,
     solana_sdk::{commitment_config::CommitmentConfig, timing::duration_as_s},
+    solana_tps_client::TpsClient,
     std::{
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -26,7 +26,7 @@ pub fn sample_txs<T>(
     sample_period: u64,
     client: &Arc<T>,
 ) where
-    T: GenericClient + ?Sized,
+    T: TpsClient + ?Sized,
 {
     let mut max_tps = 0.0;
     let mut total_elapsed;

@@ -25,7 +25,7 @@ solana-client = { workspace = true }
 solana-connection-cache = { workspace = true }
 solana-core = { workspace = true, features = ["dev-context-only-utils"] }
 solana-faucet = { workspace = true }
-solana-generic-client = { workspace = true }
+solana-tps-client = { workspace = true }
 solana-genesis = { workspace = true }
 solana-gossip = { workspace = true }
 solana-logger = { workspace = true }

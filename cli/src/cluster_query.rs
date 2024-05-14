@@ -24,7 +24,6 @@ use {
         },
         *,
     },
-    solana_generic_client::GenericClient,
     solana_pubsub_client::pubsub_client::PubsubClient,
     solana_remote_wallet::remote_wallet::RemoteWalletManager,
     solana_rpc_client::rpc_client::{GetConfirmedSignaturesForAddress2Config, RpcClient},
@@ -59,7 +58,9 @@ use {
         system_instruction::{self, MAX_PERMITTED_DATA_LENGTH},
         sysvar::{self, slot_history::SlotHistory, stake_history},
         transaction::Transaction,
-    }, solana_transaction_status::{
+    },
+    solana_tps_client::TpsClient,
+    solana_transaction_status::{
         EncodableWithMeta, EncodedConfirmedTransactionWithStatusMeta, UiTransactionEncoding,
     },
     solana_vote_program::vote_state::VoteState,
@@ -1471,7 +1472,7 @@ pub fn process_get_transaction_count(rpc_client: &RpcClient, _config: &CliConfig
 }
 
 pub fn process_ping(
-    rpc_client: &Arc<dyn GenericClient>,
+    rpc_client: &Arc<dyn TpsClient>,
     config: &CliConfig,
     interval: &Duration,
     count: &Option<u64>,

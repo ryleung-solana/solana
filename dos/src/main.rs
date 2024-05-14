@@ -52,7 +52,6 @@ use {
     },
     solana_core::repair::serve_repair::{RepairProtocol, RepairRequestHeader, ServeRepair},
     solana_dos::cli::*,
-    solana_generic_client::GenericClient,
     solana_gossip::{
         contact_info::{ContactInfo, Protocol},
         gossip_service::{discover, get_client},
@@ -72,6 +71,7 @@ use {
         transaction::Transaction,
     },
     solana_streamer::socket::SocketAddrSpace,
+    solana_tps_client::TpsClient,
     solana_tpu_client::tpu_client::DEFAULT_TPU_CONNECTION_POOL_SIZE,
     std::{
         net::{SocketAddr, UdpSocket},
@@ -124,7 +124,7 @@ impl TransactionGenerator {
     /// new accounts, signing accounts. It is `None` only if `valid_signatures==false`.
     /// `client` - structure responsible for providing blockhash.
     ///
-    fn generate<T: 'static + GenericClient + Send + Sync>(
+    fn generate<T: 'static + TpsClient + Send + Sync>(
         &mut self,
         payer: Option<&Keypair>,
         destinations: Option<Vec<&Keypair>>,
@@ -140,7 +140,7 @@ impl TransactionGenerator {
         }
     }
 
-    fn generate_with_blockhash<T: 'static + GenericClient + Send + Sync>(
+    fn generate_with_blockhash<T: 'static + TpsClient + Send + Sync>(
         &mut self,
         payer: &Keypair,
         destinations: Vec<&Keypair>,
@@ -344,7 +344,7 @@ fn create_sender_thread(
     }).unwrap()
 }
 
-fn create_generator_thread<T: 'static + GenericClient + Send + Sync>(
+fn create_generator_thread<T: 'static + TpsClient + Send + Sync>(
     tx_sender: &Sender<TransactionBatchMsg>,
     send_batch_size: usize,
     transaction_generator: &TransactionGenerator,
@@ -543,7 +543,7 @@ fn apply_permutation<'a, T>(permutation: Vec<&usize>, items: &'a [T]) -> Vec<&'a
     res
 }
 
-fn create_payers<T: 'static + GenericClient + Send + Sync>(
+fn create_payers<T: 'static + TpsClient + Send + Sync>(
     valid_blockhash: bool,
     size: usize,
     client: Option<&Arc<T>>,
@@ -582,7 +582,7 @@ fn get_permutation_size(num_signatures: Option<&usize>, num_instructions: Option
     }
 }
 
-fn run_dos_transactions<T: 'static + GenericClient + Send + Sync>(
+fn run_dos_transactions<T: 'static + TpsClient + Send + Sync>(
     target: SocketAddr,
     iterations: usize,
     client: Option<Arc<T>>,
@@ -625,7 +625,7 @@ fn run_dos_transactions<T: 'static + GenericClient + Send + Sync>(
     }
 }
 
-fn run_dos<T: 'static + GenericClient + Send + Sync>(
+fn run_dos<T: 'static + TpsClient + Send + Sync>(
     nodes: &[ContactInfo],
     iterations: usize,
     client: Option<Arc<T>>,
@@ -638,7 +638,7 @@ fn run_dos<T: 'static + GenericClient + Send + Sync>(
         params.tpu_use_quic,
     );
     if params.mode == Mode::Rpc {
-        // creating rpc_client because get_account, get_program_accounts are not implemented for GenericClient
+        // creating rpc_client because get_account, get_program_accounts are not implemented for TpsClient
         let rpc_client =
             get_rpc_client(nodes, params.entrypoint_addr).expect("Failed to get rpc client");
         // existence of data_input is checked at cli level
