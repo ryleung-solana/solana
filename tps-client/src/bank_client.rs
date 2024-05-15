@@ -40,11 +40,6 @@ impl TpsClient for BankClient {
         SyncClient::get_transaction_count(self).map_err(|err| err.into())
     }
 
-    // TODO: fix
-    fn get_new_latest_blockhash(&self, _blockhash: &Hash) -> TpsClientResult<Hash> {
-        Ok(Hash::new("Hello world".as_bytes()))
-    }
-
     fn get_signature_status(&self, _signature: &Signature) -> TpsClientResult<Option<Result<()>>> {
         Ok(None)
     }

@@ -9,6 +9,7 @@ license = { workspace = true }
 edition = { workspace = true }
 
 [dependencies]
+log = { workspace = true }
 solana-connection-cache = { workspace = true }
 solana-quic-client = { workspace = true }
 solana-rpc-client = { workspace = true }

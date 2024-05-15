@@ -7401,6 +7401,7 @@ dependencies = [
 name = "solana-tps-client"
 version = "2.0.0"
 dependencies = [
+ "log",
  "serial_test",
  "solana-connection-cache",
  "solana-quic-client",

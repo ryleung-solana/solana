@@ -1,7 +1,9 @@
 use {
+    log::debug,
     solana_rpc_client_api::{client_error::Error as ClientError, config::RpcBlockConfig},
     solana_sdk::{
         account::Account,
+        clock::DEFAULT_MS_PER_SLOT,
         commitment_config::CommitmentConfig,
         epoch_info::EpochInfo,
         hash::Hash,
@@ -14,6 +16,10 @@ use {
     },
     solana_tpu_client::tpu_client::TpuSenderError,
     solana_transaction_status::UiConfirmedBlock,
+    std::{
+        thread::sleep,
+        time::{Duration, Instant},
+    },
     thiserror::Error,
 };
 
@@ -51,7 +57,23 @@ pub trait TpsClient {
         commitment_config: CommitmentConfig,
     ) -> TpsClientResult<(Hash, u64)>;
 
-    fn get_new_latest_blockhash(&self, blockhash: &Hash) -> TpsClientResult<Hash>;
+    fn get_new_latest_blockhash(&self, blockhash: &Hash) -> TpsClientResult<Hash> {
+        let start = Instant::now();
+        let mut last_res = Err(TpsClientError::Custom("Timeout".to_string()));
+        while start.elapsed().as_secs() < 5 {
+            last_res = self.get_latest_blockhash();
+            if let Ok(new_blockhash) = last_res {
+                if new_blockhash != *blockhash {
+                    return Ok(new_blockhash);
+                }
+            }
+            debug!("Got same blockhash ({:?}), will retry...", blockhash);
+
+            // Retry ~twice during a slot
+            sleep(Duration::from_millis(DEFAULT_MS_PER_SLOT / 2));
+        }
+        last_res
+    }
 
     fn get_signature_status(&self, signature: &Signature) -> TpsClientResult<Option<Result<()>>>;
 
