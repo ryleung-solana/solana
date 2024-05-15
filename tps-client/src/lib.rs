@@ -59,10 +59,8 @@ pub trait TpsClient {
 
     fn get_new_latest_blockhash(&self, blockhash: &Hash) -> TpsClientResult<Hash> {
         let start = Instant::now();
-        let mut last_res = Err(TpsClientError::Custom("Timeout".to_string()));
         while start.elapsed().as_secs() < 5 {
-            last_res = self.get_latest_blockhash();
-            if let Ok(new_blockhash) = last_res {
+            if let Ok(new_blockhash) = self.get_latest_blockhash() {
                 if new_blockhash != *blockhash {
                     return Ok(new_blockhash);
                 }
@@ -72,7 +70,7 @@ pub trait TpsClient {
             // Retry ~twice during a slot
             sleep(Duration::from_millis(DEFAULT_MS_PER_SLOT / 2));
         }
-        last_res
+        Err(TpsClientError::Custom("Timeout".to_string()))
     }
 
     fn get_signature_status(&self, signature: &Signature) -> TpsClientResult<Option<Result<()>>>;
