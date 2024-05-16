@@ -40,8 +40,8 @@ impl TpsClient for BankClient {
         SyncClient::get_transaction_count(self).map_err(|err| err.into())
     }
 
-    fn get_signature_status(&self, _signature: &Signature) -> TpsClientResult<Option<Result<()>>> {
-        Ok(None)
+    fn get_signature_status(&self, signature: &Signature) -> TpsClientResult<Option<Result<()>>> {
+        SyncClient::get_signature_status(self, signature).map_err(|err| err.into())
     }
 
     fn get_transaction_count_with_commitment(
