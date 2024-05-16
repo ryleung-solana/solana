@@ -972,46 +972,6 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
         config.rpc_client.as_ref().unwrap().clone()
     };
 
-    let keypair = read_keypair_file(&config.keypair_path).unwrap_or(Keypair::new());
-
-    let client_dyn: Arc<dyn TpsClient + 'static> = if config.use_tpu_client {
-        let connection_cache = create_connection_cache(
-            DEFAULT_TPU_CONNECTION_POOL_SIZE,
-            config.use_quic,
-            "127.0.0.1".parse().unwrap(),
-            Some(&keypair),
-            rpc_client.clone(),
-        );
-        match connection_cache {
-            ConnectionCache::Udp(cache) => Arc::new(
-                TpuClient::new_with_connection_cache(
-                    rpc_client.clone(),
-                    &config.websocket_url,
-                    TpuClientConfig::default(),
-                    cache,
-                )
-                .unwrap_or_else(|err| {
-                    eprintln!("Could not create TpuClient {err:?}");
-                    exit(1);
-                }),
-            ),
-            ConnectionCache::Quic(cache) => Arc::new(
-                TpuClient::new_with_connection_cache(
-                    rpc_client.clone(),
-                    &config.websocket_url,
-                    TpuClientConfig::default(),
-                    cache,
-                )
-                .unwrap_or_else(|err| {
-                    eprintln!("Could not create TpuClient {err:?}");
-                    exit(1);
-                }),
-            ),
-        }
-    } else {
-        rpc_client.clone() as Arc<dyn TpsClient + 'static>
-    };
-
     match &config.command {
         // Cluster Query Commands
         // Get address of this client
@@ -1077,17 +1037,57 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             blockhash,
             print_timestamp,
             compute_unit_price,
-        } => process_ping(
-            &client_dyn,
-            config,
-            interval,
-            count,
-            timeout,
-            blockhash,
-            *print_timestamp,
-            compute_unit_price.as_ref(),
-            &rpc_client,
-        ),
+        } => {
+            let client_dyn: Arc<dyn TpsClient + 'static> = if config.use_tpu_client {
+                let keypair = read_keypair_file(&config.keypair_path).unwrap_or(Keypair::new());
+                let connection_cache = create_connection_cache(
+                    DEFAULT_TPU_CONNECTION_POOL_SIZE,
+                    config.use_quic,
+                    "127.0.0.1".parse().unwrap(),
+                    Some(&keypair),
+                    rpc_client.clone(),
+                );
+                match connection_cache {
+                    ConnectionCache::Udp(cache) => Arc::new(
+                        TpuClient::new_with_connection_cache(
+                            rpc_client.clone(),
+                            &config.websocket_url,
+                            TpuClientConfig::default(),
+                            cache,
+                        )
+                        .unwrap_or_else(|err| {
+                            eprintln!("Could not create TpuClient {err:?}");
+                            exit(1);
+                        }),
+                    ),
+                    ConnectionCache::Quic(cache) => Arc::new(
+                        TpuClient::new_with_connection_cache(
+                            rpc_client.clone(),
+                            &config.websocket_url,
+                            TpuClientConfig::default(),
+                            cache,
+                        )
+                        .unwrap_or_else(|err| {
+                            eprintln!("Could not create TpuClient {err:?}");
+                            exit(1);
+                        }),
+                    ),
+                }
+            } else {
+                rpc_client.clone() as Arc<dyn TpsClient + 'static>
+            };
+            process_ping(
+                &client_dyn,
+                config,
+                interval,
+                count,
+                timeout,
+                blockhash,
+                *print_timestamp,
+                compute_unit_price.as_ref(),
+                &rpc_client,
+            )
+        }
         CliCommand::Rent {
             data_length,
             use_lamports_unit,
