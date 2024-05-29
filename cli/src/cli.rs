@@ -33,21 +33,13 @@ use {
         stake::{instruction::LockupArgs, state::Lockup},
         transaction::{TransactionError, VersionedTransaction},
     },
-    solana_streamer::streamer::StakedNodes,
-    solana_tps_client::TpsClient,
+    solana_tps_client::{utils::create_connection_cache, TpsClient},
     solana_tpu_client::tpu_client::{
         TpuClient, TpuClientConfig, DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP,
     },
     solana_vote_program::vote_state::VoteAuthorize,
     std::{
-        collections::HashMap,
-        error,
-        io::stdout,
-        net::IpAddr,
-        process::exit,
-        rc::Rc,
-        str::FromStr,
-        sync::{Arc, RwLock},
+        collections::HashMap, error, io::stdout, process::exit, rc::Rc, str::FromStr, sync::Arc,
         time::Duration,
     },
     thiserror::Error,
@@ -862,86 +854,6 @@ pub fn parse_command(
         _ => unreachable!(),
     }?;
     Ok(response)
-}
-
-/// Request information about node's stake
-/// If fail to get requested information, return error
-/// Otherwise return stake of the node
-/// along with total activated stake of the network
-fn find_node_activated_stake(
-    rpc_client: Arc<RpcClient>,
-    node_id: Pubkey,
-) -> Result<(u64, u64), ()> {
-    let vote_accounts = rpc_client.get_vote_accounts();
-    if let Err(error) = vote_accounts {
-        error!("Failed to get vote accounts, error: {}", error);
-        return Err(());
-    }
-
-    let vote_accounts = vote_accounts.unwrap();
-
-    let total_active_stake: u64 = vote_accounts
-        .current
-        .iter()
-        .map(|vote_account| vote_account.activated_stake)
-        .sum();
-
-    let node_id_as_str = node_id.to_string();
-    let find_result = vote_accounts
-        .current
-        .iter()
-        .find(|&vote_account| vote_account.node_pubkey == node_id_as_str);
-    match find_result {
-        Some(value) => Ok((value.activated_stake, total_active_stake)),
-        None => {
-            error!("Failed to find stake for requested node");
-            Err(())
-        }
-    }
-}
-
-fn create_connection_cache(
-    tpu_connection_pool_size: usize,
-    use_quic: bool,
-    bind_address: IpAddr,
-    client_node_id: Option<&Keypair>,
-    rpc_client: Arc<RpcClient>,
-) -> ConnectionCache {
-    if !use_quic {
-        return ConnectionCache::with_udp(
-            "solana-ping-connection_cache_udp",
-            tpu_connection_pool_size,
-        );
-    }
-    if client_node_id.is_none() {
-        return ConnectionCache::new_quic(
-            "solana-ping-connection_cache_quic",
-            tpu_connection_pool_size,
-        );
-    }
-
-    let client_node_id = client_node_id.unwrap();
-    let (stake, total_stake) =
-        find_node_activated_stake(rpc_client, client_node_id.pubkey()).unwrap_or_default();
-    info!("Stake for specified client_node_id: {stake}, total stake: {total_stake}");
-    let stakes = HashMap::from([
-        (client_node_id.pubkey(), stake),
-        (
-            Pubkey::new_unique(),
-            total_stake.checked_sub(stake).unwrap(),
-        ),
-    ]);
-    let staked_nodes = Arc::new(RwLock::new(StakedNodes::new(
-        Arc::new(stakes),
-        HashMap::<Pubkey, u64>::default(), // overrides
-    )));
-    ConnectionCache::new_with_client_options(
-        "solana-ping-connection_cache_quic",
-        tpu_connection_pool_size,
-        None,
-        Some((client_node_id, bind_address)),
-        Some((&staked_nodes, &client_node_id.pubkey())),
-    )
 }
 
 pub type ProcessResult = Result<String, Box<dyn std::error::Error>>;

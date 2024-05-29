@@ -10,12 +10,14 @@ edition = { workspace = true }
 
 [dependencies]
 log = { workspace = true }
+solana-client = { workspace = true }
 solana-connection-cache = { workspace = true }
 solana-quic-client = { workspace = true }
 solana-rpc-client = { workspace = true }
 solana-rpc-client-api = { workspace = true }
 solana-runtime = { workspace = true }
 solana-sdk = { workspace = true }
+solana-streamer = { workspace = true }
 solana-tpu-client = { workspace = true }
 solana-transaction-status = { workspace = true }
 thiserror = { workspace = true }
