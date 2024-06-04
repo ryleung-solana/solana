@@ -56,13 +56,13 @@ pub fn create_connection_cache(
 ) -> ClientConnectionCache {
     if !use_quic {
         return ClientConnectionCache::with_udp(
-            "solana-ping-connection_cache_udp",
+            "solana-tps-connection_cache_udp",
             tpu_connection_pool_size,
         );
     }
     if client_node_id.is_none() {
         return ClientConnectionCache::new_quic(
-            "solana-ping-connection_cache_quic",
+            "solana-tps-connection_cache_quic",
             tpu_connection_pool_size,
         );
     }
@@ -83,7 +83,7 @@ pub fn create_connection_cache(
         HashMap::<Pubkey, u64>::default(), // overrides
     )));
     ClientConnectionCache::new_with_client_options(
-        "solana-ping-connection_cache_quic",
+        "solana-tps-connection_cache_quic",
         tpu_connection_pool_size,
         None,
         Some((client_node_id, bind_address)),
