@@ -244,7 +244,7 @@ async fn run_server(
 
         if let Ok(Some(connection)) = timeout_connection {
             stats
-                .total_incoming_handshakes
+                .total_incoming_connection_attempts
                 .fetch_add(1, Ordering::Relaxed);
             let remote_address = connection.remote_address();
 
@@ -278,7 +278,7 @@ async fn run_server(
                 continue;
             }
             stats
-                .outstanding_incoming_handshakes
+                .outstanding_incoming_connection_attempts
                 .fetch_add(1, Ordering::Relaxed);
             tokio::spawn(setup_connection(
                 connection,
@@ -577,7 +577,7 @@ async fn setup_connection(
     let from = connecting.remote_address();
     let res = timeout(QUIC_CONNECTION_HANDSHAKE_TIMEOUT, connecting).await;
     stats
-        .outstanding_incoming_handshakes
+        .outstanding_incoming_connection_attempts
         .fetch_sub(1, Ordering::Relaxed);
     if let Ok(connecting_result) = res {
         match connecting_result {

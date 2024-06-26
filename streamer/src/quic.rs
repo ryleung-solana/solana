@@ -189,8 +189,8 @@ pub struct StreamStats {
     pub(crate) throttled_staked_streams: AtomicUsize,
     pub(crate) throttled_unstaked_streams: AtomicUsize,
     pub(crate) connection_rate_limiter_length: AtomicUsize,
-    pub(crate) outstanding_incoming_handshakes: AtomicUsize,
-    pub(crate) total_incoming_handshakes: AtomicUsize,
+    pub(crate) outstanding_incoming_connection_attempts: AtomicUsize,
+    pub(crate) total_incoming_connection_attempts: AtomicUsize,
 }
 
 impl StreamStats {
@@ -520,13 +520,15 @@ impl StreamStats {
                 i64
             ),
             (
-                "outstanding_incoming_handshakes",
-                self.outstanding_incoming_handshakes.load(Ordering::Relaxed),
+                "outstanding_incoming_connection_attempts",
+                self.outstanding_incoming_connection_attempts
+                    .load(Ordering::Relaxed),
                 i64
             ),
             (
-                "total_incoming_handshakes",
-                self.total_incoming_handshakes.load(Ordering::Relaxed),
+                "total_incoming_connection_attempts",
+                self.total_incoming_connection_attempts
+                    .load(Ordering::Relaxed),
                 i64
             ),
         );
