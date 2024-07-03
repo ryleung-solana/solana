@@ -807,6 +807,8 @@ fn handle_connection_error(e: quinn::ConnectionError, stats: &StreamStats, from:
     }
 }
 
+// Holder(s) of the AsyncSender<PacketAccumulator> on the other end should not
+// wait for this function to exit to exit
 async fn packet_batch_sender(
     packet_sender: Sender<PacketBatch>,
     packet_receiver: AsyncReceiver<PacketAccumulator>,
@@ -865,6 +867,13 @@ async fn packet_batch_sender(
             let timeout_res = if !packet_batch.is_empty() {
                 timeout(Duration::from_micros(250), packet_receiver.recv()).await
             } else {
+                // Small bit of non-idealness here: the holder(s) of the other end
+                // of packet_receiver must drop it (without waiting for us to exit)
+                // or we have a chance of sleeping here forever
+                // and never polling exit. Not a huge deal in practice as the
+                // only time this happens is when we tear down the server
+                // and at that time the other end does indeed not wait for us
+                // to exit here
                 Ok(packet_receiver.recv().await)
             };
 
@@ -1786,6 +1795,8 @@ pub mod test {
         }
         assert_eq!(i, num_packets);
         exit.store(true, Ordering::Relaxed);
+        // Explicit drop to wake up packet_batch_sender
+        drop(ptk_sender);
         handle.await.unwrap();
     }
 
