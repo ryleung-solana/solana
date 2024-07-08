@@ -865,7 +865,12 @@ async fn packet_batch_sender(
             }
 
             let timeout_res = if !packet_batch.is_empty() {
-                timeout(Duration::from_micros(250), packet_receiver.recv()).await
+                let elapsed = batch_start_time.elapsed();
+                if let Some(time_left) = coalesce.checked_sub(elapsed) {
+                    timeout(time_left, packet_receiver.recv()).await
+                } else {
+                    continue;
+                }
             } else {
                 // Small bit of non-idealness here: the holder(s) of the other end
                 // of packet_receiver must drop it (without waiting for us to exit)
