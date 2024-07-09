@@ -865,7 +865,6 @@ async fn packet_batch_sender(
             }
 
             let timeout_res = if !packet_batch.is_empty() {
-                let elapsed = batch_start_time.elapsed();
                 if let Some(time_left) = coalesce.checked_sub(elapsed) {
                     timeout(time_left, packet_receiver.recv()).await
                 } else {
